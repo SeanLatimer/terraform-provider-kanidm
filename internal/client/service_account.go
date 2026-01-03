@@ -2,7 +2,10 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 )
 
 // ServiceAccount represents a Kanidm service account
@@ -36,8 +39,9 @@ func (c *Client) CreateServiceAccount(ctx context.Context, name, displayName str
 	defer func() { _ = resp.Body.Close() }()
 
 	sa := &ServiceAccount{
-		ID:          name,
-		DisplayName: displayName,
+		ID:             name,
+		DisplayName:    displayName,
+		EntryManagedBy: entryManagedBy,
 	}
 
 	// Generate initial API token
@@ -121,13 +125,31 @@ func (c *Client) GenerateServiceAccountToken(ctx context.Context, id, label stri
 	if err != nil {
 		return "", fmt.Errorf("generate api token: %w", err)
 	}
+	defer func() { _ = resp.Body.Close() }()
 
+	// Read the response body first for better error reporting
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response body: %w", err)
+	}
+
+	// Try to unmarshal as JSON first
 	var result struct {
 		Token string `json:"token"`
 	}
 
-	if err := decodeResponse(resp, &result); err != nil {
-		return "", err
+	if err := json.Unmarshal(body, &result); err != nil {
+		// If JSON unmarshal fails, try treating the response as a plain string (JWT token)
+		// Remove quotes if present (API returns quoted string)
+		token := string(body)
+		if len(token) > 0 && token[0] == '"' && token[len(token)-1] == '"' {
+			token = token[1 : len(token)-1]
+		}
+		// Basic validation: JWT tokens should have at least 2 dots
+		if len(token) > 0 && strings.Count(token, ".") >= 2 {
+			return token, nil
+		}
+		return "", fmt.Errorf("decode response: %w (response body: %s)", err, string(body))
 	}
 
 	return result.Token, nil
