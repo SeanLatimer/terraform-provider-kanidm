@@ -18,6 +18,8 @@ type Person struct {
 	SPN         string
 	DisplayName string
 	LegalName   string
+	GIDNumber   *int64
+	Shell       string
 	ValidFrom   string
 	ExpireAt    string
 	Mail        []string
@@ -153,6 +155,22 @@ func (c *Client) ClearPersonExpireAt(ctx context.Context, id string) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	return nil
+}
+
+func (c *Client) SetPersonUnix(ctx context.Context, id string, gidNumber *int64, shell *string) error {
+	body := map[string]any{}
+	if gidNumber != nil {
+		body["gidnumber"] = *gidNumber
+	}
+	if shell != nil {
+		body["shell"] = *shell
+	}
+	resp, err := c.doRequest(ctx, "POST", "/v1/person/"+id+"/_unix", body)
+	if err != nil {
+		return fmt.Errorf("set person unix: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
 	return nil
 }
 

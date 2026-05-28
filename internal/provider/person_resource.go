@@ -41,6 +41,9 @@ type personResourceModel struct {
 	ID                                  types.String `tfsdk:"id"`
 	DisplayName                         types.String `tfsdk:"displayname"`
 	LegalName                           types.String `tfsdk:"legalname"`
+	PosixEnabled                        types.Bool   `tfsdk:"posix_enabled"`
+	GIDNumber                           types.Int64  `tfsdk:"gidnumber"`
+	Shell                               types.String `tfsdk:"shell"`
 	ValidFrom                           types.String `tfsdk:"valid_from"`
 	ExpireAt                            types.String `tfsdk:"expire_at"`
 	NameManagement                      types.String `tfsdk:"name_management"`
@@ -128,6 +131,22 @@ The user can then visit the Kanidm web UI with the token to set up passkeys or p
 				MarkdownDescription: "How Terraform manages `legalname`. Valid values: `managed`, `initial`.",
 				Optional:            true,
 			},
+			"posix_enabled": schema.BoolAttribute{
+				MarkdownDescription: "Whether POSIX support is enabled for the person. Enabling without a gidnumber lets Kanidm generate one automatically. Disabling after enablement is not currently supported.",
+				Optional:            true,
+				Computed:            true,
+				Default:             booldefault.StaticBool(false),
+			},
+			"gidnumber": schema.Int64Attribute{
+				MarkdownDescription: "Optional POSIX gidnumber for the person. Computed after POSIX is enabled, even when Kanidm generates the value.",
+				Optional:            true,
+				Computed:            true,
+			},
+			"shell": schema.StringAttribute{
+				MarkdownDescription: "Optional login shell for the POSIX-enabled person.",
+				Optional:            true,
+				Computed:            true,
+			},
 			"valid_from": schema.StringAttribute{
 				MarkdownDescription: "Earliest RFC3339 time when the person can authenticate. Use `null` to leave unset.",
 				Optional:            true,
@@ -202,6 +221,17 @@ func validateRFC3339Optional(attrName string, value types.String) error {
 	return nil
 }
 
+func validatePersonPOSIX(plan personResourceModel) error {
+	posixEnabled := (!plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && plan.PosixEnabled.ValueBool()) || (!plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown()) || (!plan.Shell.IsNull() && !plan.Shell.IsUnknown() && plan.Shell.ValueString() != "")
+	if !posixEnabled {
+		return nil
+	}
+	if !plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && !plan.PosixEnabled.ValueBool() {
+		return errors.New("gidnumber and shell require posix_enabled = true")
+	}
+	return nil
+}
+
 func (r *personResource) resolveManagementModes(plan personResourceModel) (string, string, string, bool, bool, bool, error) {
 	nameMode, diags := resolveManagementMode(plan.NameManagement, r.personDefaults.Name, "name_management")
 	if diags.HasError() {
@@ -229,6 +259,21 @@ func (r *personResource) applyPersonState(ctx context.Context, model *personReso
 		model.LegalName = types.StringValue(person.LegalName)
 	} else {
 		model.LegalName = types.StringNull()
+	}
+	if unixToken, err := r.client.GetAccountUnixToken(ctx, person.UUID); err == nil {
+		model.PosixEnabled = types.BoolValue(true)
+		model.GIDNumber = types.Int64Value(unixToken.GIDNumber)
+		if unixToken.Shell != "" {
+			model.Shell = types.StringValue(unixToken.Shell)
+		} else {
+			model.Shell = types.StringNull()
+		}
+	} else if client.UnixTokenUnavailable(err) {
+		model.PosixEnabled = types.BoolValue(false)
+		model.GIDNumber = types.Int64Null()
+		model.Shell = types.StringNull()
+	} else {
+		return err
 	}
 	if person.ValidFrom != "" {
 		model.ValidFrom = types.StringValue(person.ValidFrom)
@@ -288,6 +333,24 @@ func (r *personResource) ModifyPlan(ctx context.Context, req resource.ModifyPlan
 	if legalNameMode == managementModeInitial && !state.LegalName.IsNull() && !state.LegalName.IsUnknown() {
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("legalname"), state.LegalName)...)
 	}
+	if plan.PosixEnabled.IsNull() || plan.PosixEnabled.IsUnknown() {
+		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("posix_enabled"), state.PosixEnabled)...)
+	}
+	if !state.PosixEnabled.IsNull() && !state.PosixEnabled.IsUnknown() && state.PosixEnabled.ValueBool() {
+		if (plan.GIDNumber.IsNull() || plan.GIDNumber.IsUnknown()) && !state.GIDNumber.IsNull() && !state.GIDNumber.IsUnknown() {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("gidnumber"), state.GIDNumber)...)
+		}
+		if (plan.Shell.IsNull() || plan.Shell.IsUnknown()) && !state.Shell.IsNull() && !state.Shell.IsUnknown() {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("shell"), state.Shell)...)
+		}
+	} else {
+		if plan.GIDNumber.IsUnknown() {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("gidnumber"), types.Int64Null())...)
+		}
+		if plan.Shell.IsUnknown() {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("shell"), types.StringNull())...)
+		}
+	}
 
 	if !state.GenerateInitialCredentialResetToken.IsNull() && !state.GenerateInitialCredentialResetToken.IsUnknown() {
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("generate_initial_credential_reset_token"), state.GenerateInitialCredentialResetToken)...)
@@ -335,6 +398,10 @@ func (r *personResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 	if err := validateRFC3339Optional("expire_at", plan.ExpireAt); err != nil {
 		resp.Diagnostics.AddError("Invalid expire_at", err.Error())
+		return
+	}
+	if err := validatePersonPOSIX(plan); err != nil {
+		resp.Diagnostics.AddError("Invalid POSIX Configuration", err.Error())
 		return
 	}
 
@@ -431,6 +498,23 @@ func (r *personResource) Create(ctx context.Context, req resource.CreateRequest,
 				"Error Updating Expire At",
 				"Person was created but expire_at could not be set: "+err.Error(),
 			)
+			return
+		}
+	}
+	posixEnabled := (!plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && plan.PosixEnabled.ValueBool()) || (!plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown()) || (!plan.Shell.IsNull() && !plan.Shell.IsUnknown() && plan.Shell.ValueString() != "")
+	if posixEnabled {
+		var gid *int64
+		if !plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown() {
+			value := plan.GIDNumber.ValueInt64()
+			gid = &value
+		}
+		var shell *string
+		if !plan.Shell.IsNull() && !plan.Shell.IsUnknown() {
+			value := plan.Shell.ValueString()
+			shell = &value
+		}
+		if err := r.client.SetPersonUnix(ctx, person.Name, gid, shell); err != nil {
+			resp.Diagnostics.AddError("Error Enabling POSIX Person", err.Error())
 			return
 		}
 	}
@@ -570,6 +654,17 @@ func (r *personResource) Update(ctx context.Context, req resource.UpdateRequest,
 		resp.Diagnostics.AddError("Invalid expire_at", err.Error())
 		return
 	}
+	if err := validatePersonPOSIX(plan); err != nil {
+		resp.Diagnostics.AddError("Invalid POSIX Configuration", err.Error())
+		return
+	}
+	currentPosixEnabled := !state.PosixEnabled.IsNull() && !state.PosixEnabled.IsUnknown() && state.PosixEnabled.ValueBool()
+	desiredPosixEnabled := (!plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && plan.PosixEnabled.ValueBool()) || (!plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown()) || (!plan.Shell.IsNull() && !plan.Shell.IsUnknown() && plan.Shell.ValueString() != "")
+	if currentPosixEnabled && !desiredPosixEnabled {
+		resp.Diagnostics.AddError("Unsupported POSIX Update", "Disabling person POSIX support is not currently supported by this provider.")
+		return
+	}
+	posixChanged := !plan.PosixEnabled.Equal(state.PosixEnabled) || !plan.GIDNumber.Equal(state.GIDNumber) || !plan.Shell.Equal(state.Shell)
 
 	_, _, legalNameMode, manageName, manageDisplay, manageLegalName, err := r.resolveManagementModes(plan)
 	if err != nil {
@@ -657,6 +752,22 @@ func (r *personResource) Update(ctx context.Context, req resource.UpdateRequest,
 				resp.Diagnostics.AddError("Error Updating Expire At", "Could not update expire_at: "+err.Error())
 				return
 			}
+		}
+	}
+	if posixChanged && (desiredPosixEnabled || currentPosixEnabled) {
+		var gid *int64
+		if !plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown() {
+			value := plan.GIDNumber.ValueInt64()
+			gid = &value
+		}
+		var shell *string
+		if !plan.Shell.IsNull() && !plan.Shell.IsUnknown() {
+			value := plan.Shell.ValueString()
+			shell = &value
+		}
+		if err := r.client.SetPersonUnix(ctx, state.ID.ValueString(), gid, shell); err != nil {
+			resp.Diagnostics.AddError("Error Updating POSIX Person", err.Error())
+			return
 		}
 	}
 

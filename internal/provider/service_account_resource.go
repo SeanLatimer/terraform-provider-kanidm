@@ -8,6 +8,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -33,6 +35,10 @@ type serviceAccountResourceModel struct {
 	Name           types.String `tfsdk:"name"`
 	ID             types.String `tfsdk:"id"`
 	DisplayName    types.String `tfsdk:"displayname"`
+	Mail           types.List   `tfsdk:"mail"`
+	PosixEnabled   types.Bool   `tfsdk:"posix_enabled"`
+	GIDNumber      types.Int64  `tfsdk:"gidnumber"`
+	Shell          types.String `tfsdk:"shell"`
 	APIToken       types.String `tfsdk:"api_token"`
 	EntryManagedBy types.Set    `tfsdk:"entry_managed_by"`
 	ValidFrom      types.String `tfsdk:"valid_from"`
@@ -84,6 +90,30 @@ Store it securely immediately after creation.`,
 				MarkdownDescription: "Display name for the service account. This is shown in the Kanidm UI and logs.",
 				Required:            true,
 			},
+			"mail": schema.ListAttribute{
+				MarkdownDescription: "Email addresses for the service account.",
+				Optional:            true,
+				ElementType:         types.StringType,
+			},
+			"posix_enabled": schema.BoolAttribute{
+				MarkdownDescription: "Whether POSIX support is enabled for the service account. Enabling without a gidnumber lets Kanidm generate one automatically. Disabling after enablement is not currently supported.",
+				Optional:            true,
+				Computed:            true,
+				Default:             booldefault.StaticBool(false),
+			},
+			"gidnumber": schema.Int64Attribute{
+				MarkdownDescription: "Optional POSIX gidnumber for the service account. Computed after POSIX is enabled, even when Kanidm generates the value.",
+				Optional:            true,
+				Computed:            true,
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
+				},
+			},
+			"shell": schema.StringAttribute{
+				MarkdownDescription: "Optional login shell for the POSIX-enabled service account.",
+				Optional:            true,
+				Computed:            true,
+			},
 			"api_token": schema.StringAttribute{
 				MarkdownDescription: "API token for the service account. **Only available during creation.** " +
 					"Store this token securely as it cannot be retrieved later.",
@@ -118,6 +148,17 @@ func validateServiceAccountTimestamp(attrName string, value types.String) error 
 	}
 	if _, err := time.Parse(time.RFC3339, value.ValueString()); err != nil {
 		return errors.New(attrName + " must be a valid RFC3339 timestamp")
+	}
+	return nil
+}
+
+func validateServiceAccountPOSIX(plan serviceAccountResourceModel) error {
+	posixEnabled := (!plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && plan.PosixEnabled.ValueBool()) || (!plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown()) || (!plan.Shell.IsNull() && !plan.Shell.IsUnknown() && plan.Shell.ValueString() != "")
+	if !posixEnabled {
+		return nil
+	}
+	if !plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && !plan.PosixEnabled.ValueBool() {
+		return errors.New("gidnumber and shell require posix_enabled = true")
 	}
 	return nil
 }
@@ -241,10 +282,32 @@ func (r *serviceAccountResource) ModifyPlan(ctx context.Context, req resource.Mo
 	if req.Plan.Raw.IsNull() {
 		return
 	}
-	var plan serviceAccountResourceModel
+	if req.State.Raw.IsNull() {
+		return
+	}
+	var plan, state serviceAccountResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	if plan.PosixEnabled.IsNull() || plan.PosixEnabled.IsUnknown() {
+		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("posix_enabled"), state.PosixEnabled)...)
+	}
+	if !state.PosixEnabled.IsNull() && !state.PosixEnabled.IsUnknown() && state.PosixEnabled.ValueBool() {
+		if (plan.GIDNumber.IsNull() || plan.GIDNumber.IsUnknown()) && !state.GIDNumber.IsNull() && !state.GIDNumber.IsUnknown() {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("gidnumber"), state.GIDNumber)...)
+		}
+		if (plan.Shell.IsNull() || plan.Shell.IsUnknown()) && !state.Shell.IsNull() && !state.Shell.IsUnknown() {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("shell"), state.Shell)...)
+		}
+	} else {
+		if plan.GIDNumber.IsUnknown() {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("gidnumber"), types.Int64Null())...)
+		}
+		if plan.Shell.IsUnknown() {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("shell"), types.StringNull())...)
+		}
 	}
 	if !plan.EntryManagedBy.IsNull() && !plan.EntryManagedBy.IsUnknown() {
 		var managers []string
@@ -274,6 +337,30 @@ func (r *serviceAccountResource) applyServiceAccountState(ctx context.Context, m
 	model.ID = types.StringValue(sa.UUID)
 	model.Name = types.StringValue(sa.Name)
 	model.DisplayName = types.StringValue(sa.DisplayName)
+	if len(sa.Mail) > 0 {
+		mailList, diags := types.ListValueFrom(ctx, types.StringType, sa.Mail)
+		if diags.HasError() {
+			return errors.New(diags.Errors()[0].Summary())
+		}
+		model.Mail = mailList
+	} else {
+		model.Mail = types.ListNull(types.StringType)
+	}
+	if unixToken, err := r.client.GetAccountUnixToken(ctx, sa.UUID); err == nil {
+		model.PosixEnabled = types.BoolValue(true)
+		model.GIDNumber = types.Int64Value(unixToken.GIDNumber)
+		if unixToken.Shell != "" {
+			model.Shell = types.StringValue(unixToken.Shell)
+		} else {
+			model.Shell = types.StringNull()
+		}
+	} else if client.UnixTokenUnavailable(err) {
+		model.PosixEnabled = types.BoolValue(false)
+		model.GIDNumber = types.Int64Null()
+		model.Shell = types.StringNull()
+	} else {
+		return err
+	}
 
 	normalizedManagers, err := r.normalizeEntryManagedBy(ctx, sa.EntryManagedBy)
 	if err != nil {
@@ -316,6 +403,10 @@ func (r *serviceAccountResource) Create(ctx context.Context, req resource.Create
 		resp.Diagnostics.AddError("Invalid expire_at", err.Error())
 		return
 	}
+	if err := validateServiceAccountPOSIX(plan); err != nil {
+		resp.Diagnostics.AddError("Invalid POSIX Configuration", err.Error())
+		return
+	}
 
 	tflog.Debug(ctx, "Creating service account", map[string]any{
 		"name":        plan.Name.ValueString(),
@@ -324,10 +415,17 @@ func (r *serviceAccountResource) Create(ctx context.Context, req resource.Create
 
 	// Extract entry_managed_by (required)
 	var entryManagedBy []string
+	var mail []string
 	var err error
 	resp.Diagnostics.Append(plan.EntryManagedBy.ElementsAs(ctx, &entryManagedBy, false)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	if !plan.Mail.IsNull() && !plan.Mail.IsUnknown() {
+		resp.Diagnostics.Append(plan.Mail.ElementsAs(ctx, &mail, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 	entryManagedBy, err = r.resolveEntryManagedBySPNs(ctx, entryManagedBy)
 	if err != nil {
@@ -355,6 +453,23 @@ func (r *serviceAccountResource) Create(ctx context.Context, req resource.Create
 	if !plan.ExpireAt.IsNull() && !plan.ExpireAt.IsUnknown() {
 		if err := r.client.SetServiceAccountExpireAt(ctx, sa.Name, plan.ExpireAt.ValueString()); err != nil {
 			resp.Diagnostics.AddError("Error Updating Expire At", "Service account was created but expire_at could not be set: "+err.Error())
+			return
+		}
+	}
+	posixEnabled := (!plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && plan.PosixEnabled.ValueBool()) || (!plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown()) || (!plan.Shell.IsNull() && !plan.Shell.IsUnknown() && plan.Shell.ValueString() != "")
+	if posixEnabled {
+		var gid *int64
+		if !plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown() {
+			value := plan.GIDNumber.ValueInt64()
+			gid = &value
+		}
+		var shell *string
+		if !plan.Shell.IsNull() && !plan.Shell.IsUnknown() {
+			value := plan.Shell.ValueString()
+			shell = &value
+		}
+		if err := r.client.SetServiceAccountUnix(ctx, sa.Name, gid, shell); err != nil {
+			resp.Diagnostics.AddError("Error Enabling POSIX Service Account", err.Error())
 			return
 		}
 	}
@@ -435,15 +550,28 @@ func (r *serviceAccountResource) Update(ctx context.Context, req resource.Update
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	if err := validateServiceAccountPOSIX(plan); err != nil {
+		resp.Diagnostics.AddError("Invalid POSIX Configuration", err.Error())
+		return
+	}
 
 	tflog.Debug(ctx, "Updating service account", map[string]any{
 		"id": state.ID.ValueString(),
 	})
 	var err error
+	var mail []string
+	currentPosixEnabled := !state.PosixEnabled.IsNull() && !state.PosixEnabled.IsUnknown() && state.PosixEnabled.ValueBool()
+	desiredPosixEnabled := (!plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && plan.PosixEnabled.ValueBool()) || (!plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown()) || (!plan.Shell.IsNull() && !plan.Shell.IsUnknown() && plan.Shell.ValueString() != "")
+	if currentPosixEnabled && !desiredPosixEnabled {
+		resp.Diagnostics.AddError("Unsupported POSIX Update", "Disabling service account POSIX support is not currently supported by this provider.")
+		return
+	}
+	posixChanged := !plan.PosixEnabled.Equal(state.PosixEnabled) || !plan.GIDNumber.Equal(state.GIDNumber) || !plan.Shell.Equal(state.Shell)
 
 	// Check if entry_managed_by has changed
 	var entryManagedBy []string
 	entryManagedByChanged := !plan.EntryManagedBy.Equal(state.EntryManagedBy)
+	mailChanged := !plan.Mail.Equal(state.Mail)
 	if entryManagedByChanged {
 		if !plan.EntryManagedBy.IsNull() && !plan.EntryManagedBy.IsUnknown() {
 			resp.Diagnostics.Append(plan.EntryManagedBy.ElementsAs(ctx, &entryManagedBy, false)...)
@@ -463,13 +591,23 @@ func (r *serviceAccountResource) Update(ctx context.Context, req resource.Update
 			"id": state.ID.ValueString(),
 		})
 	}
+	if mailChanged {
+		if !plan.Mail.IsNull() && !plan.Mail.IsUnknown() {
+			resp.Diagnostics.Append(plan.Mail.ElementsAs(ctx, &mail, false)...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+		} else {
+			mail = []string{}
+		}
+	}
 
 	nameChanged := !plan.Name.Equal(state.Name)
 	// Check if displayname has changed
 	displayNameChanged := !plan.DisplayName.Equal(state.DisplayName)
 
 	// Only call UpdateServiceAccount if something changed
-	if nameChanged || displayNameChanged || entryManagedByChanged {
+	if nameChanged || displayNameChanged || entryManagedByChanged || mailChanged {
 		var name *string
 		if nameChanged {
 			newName := plan.Name.ValueString()
@@ -497,6 +635,12 @@ func (r *serviceAccountResource) Update(ctx context.Context, req resource.Update
 		} else {
 			emby = nil
 		}
+		var mailToApply []string
+		if mailChanged {
+			mailToApply = mail
+		} else {
+			mailToApply = nil
+		}
 
 		err := r.client.UpdateServiceAccount(
 			ctx,
@@ -504,6 +648,7 @@ func (r *serviceAccountResource) Update(ctx context.Context, req resource.Update
 			name,
 			displayName,
 			emby,
+			mailToApply,
 		)
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -537,6 +682,22 @@ func (r *serviceAccountResource) Update(ctx context.Context, req resource.Update
 				resp.Diagnostics.AddError("Error Updating Expire At", "Could not update expire_at: "+err.Error())
 				return
 			}
+		}
+	}
+	if posixChanged && (desiredPosixEnabled || currentPosixEnabled) {
+		var gid *int64
+		if !plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown() {
+			value := plan.GIDNumber.ValueInt64()
+			gid = &value
+		}
+		var shell *string
+		if !plan.Shell.IsNull() && !plan.Shell.IsUnknown() {
+			value := plan.Shell.ValueString()
+			shell = &value
+		}
+		if err := r.client.SetServiceAccountUnix(ctx, state.ID.ValueString(), gid, shell); err != nil {
+			resp.Diagnostics.AddError("Error Updating POSIX Service Account", err.Error())
+			return
 		}
 	}
 

@@ -8,6 +8,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -33,6 +35,9 @@ type groupResourceModel struct {
 	Name        types.String `tfsdk:"name"`
 	ID          types.String `tfsdk:"id"`
 	Description types.String `tfsdk:"description"`
+	Mail        types.List   `tfsdk:"mail"`
+	PosixEnabled types.Bool  `tfsdk:"posix_enabled"`
+	GIDNumber   types.Int64  `tfsdk:"gidnumber"`
 	EntryManagedBy types.Set `tfsdk:"entry_managed_by"`
 	Members     types.Set    `tfsdk:"members"`
 }
@@ -77,6 +82,25 @@ resource "kanidm_group" "developers" {
 			"description": schema.StringAttribute{
 				MarkdownDescription: "Description of the group.",
 				Optional:            true,
+			},
+			"mail": schema.ListAttribute{
+				MarkdownDescription: "Email addresses for the group.",
+				Optional:            true,
+				ElementType:         types.StringType,
+			},
+			"posix_enabled": schema.BoolAttribute{
+				MarkdownDescription: "Whether POSIX support is enabled for the group. Enabling without a gidnumber lets Kanidm generate one automatically. Disabling after enablement is not currently supported.",
+				Optional:            true,
+				Computed:            true,
+				Default:             booldefault.StaticBool(false),
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"gidnumber": schema.Int64Attribute{
+				MarkdownDescription: "Optional POSIX gidnumber for the group. Computed after POSIX is enabled, even when Kanidm generates the value.",
+				Optional:            true,
+				Computed:            true,
 			},
 			"entry_managed_by": schema.SetAttribute{
 				MarkdownDescription: "Set of account or group IDs that can manage this group.",
@@ -283,6 +307,27 @@ func (r *groupResource) applyGroupState(ctx context.Context, model *groupResourc
 	model.ID = types.StringValue(group.UUID)
 	model.Name = types.StringValue(group.Name)
 	model.Description = types.StringValue(group.Description)
+	if len(group.Mail) > 0 {
+		mailList, diags := types.ListValueFrom(ctx, types.StringType, group.Mail)
+		if diags.HasError() {
+			return fmt.Errorf("convert mail list: %s", diags.Errors()[0].Summary())
+		}
+		model.Mail = mailList
+	} else {
+		model.Mail = types.ListNull(types.StringType)
+	}
+	if group.GIDNumber == nil {
+		if unixToken, err := r.client.GetGroupUnixToken(ctx, group.UUID); err == nil {
+			group.GIDNumber = &unixToken.GIDNumber
+		}
+	}
+	if group.GIDNumber != nil {
+		model.PosixEnabled = types.BoolValue(true)
+		model.GIDNumber = types.Int64Value(*group.GIDNumber)
+	} else {
+		model.PosixEnabled = types.BoolValue(false)
+		model.GIDNumber = types.Int64Null()
+	}
 	normalizedManagers, err := r.normalizeEntryManagedBy(ctx, group.EntryManagedBy)
 	if err != nil {
 		return err
@@ -321,6 +366,11 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	posixEnabled := (!plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && plan.PosixEnabled.ValueBool()) || (!plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown())
+	if !plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && !plan.PosixEnabled.ValueBool() && !plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown() {
+		resp.Diagnostics.AddError("Invalid POSIX Configuration", "gidnumber requires posix_enabled = true.")
+		return
+	}
 
 	tflog.Debug(ctx, "Creating group", map[string]any{
 		"name": plan.Name.ValueString(),
@@ -328,6 +378,7 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 
 	// Create the group
 	description := ""
+	var mail []string
 	var entryManagedBy []string
 	var err error
 	if !plan.Description.IsNull() {
@@ -344,6 +395,12 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 			return
 		}
 	}
+	if !plan.Mail.IsNull() && !plan.Mail.IsUnknown() {
+		resp.Diagnostics.Append(plan.Mail.ElementsAs(ctx, &mail, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
 
 	group, err := r.client.CreateGroup(ctx, plan.Name.ValueString(), description)
 	if err != nil {
@@ -355,10 +412,33 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 	}
 
 	if entryManagedBy != nil {
-		if err := r.client.UpdateGroup(ctx, group.Name, nil, nil, entryManagedBy, nil); err != nil {
+		if err := r.client.UpdateGroup(ctx, group.Name, nil, nil, nil, entryManagedBy, nil); err != nil {
 			resp.Diagnostics.AddError(
 				"Error Setting Managed By",
 				"Group was created but entry_managed_by could not be set: "+err.Error(),
+			)
+			return
+		}
+	}
+	if mail != nil {
+		if err := r.client.UpdateGroup(ctx, group.Name, nil, nil, mail, nil, nil); err != nil {
+			resp.Diagnostics.AddError(
+				"Error Setting Mail",
+				"Group was created but mail could not be set: "+err.Error(),
+			)
+			return
+		}
+	}
+	if posixEnabled {
+		var gid *int64
+		if !plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown() {
+			value := plan.GIDNumber.ValueInt64()
+			gid = &value
+		}
+		if err := r.client.SetGroupGIDNumber(ctx, group.Name, gid); err != nil {
+			resp.Diagnostics.AddError(
+				"Error Enabling POSIX Group",
+				"Group was created but POSIX support could not be enabled: "+err.Error(),
 			)
 			return
 		}
@@ -376,7 +456,7 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 			tflog.Debug(ctx, "Adding members to group", map[string]any{
 				"count": len(memberIDs),
 			})
-			if err := r.client.UpdateGroup(ctx, group.Name, nil, nil, nil, memberIDs); err != nil {
+			if err := r.client.UpdateGroup(ctx, group.Name, nil, nil, nil, nil, memberIDs); err != nil {
 				resp.Diagnostics.AddError(
 					"Error Adding Members",
 					"Group was created but members could not be added: "+err.Error(),
@@ -394,6 +474,11 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 			"Group was created but could not be read back: "+err.Error(),
 		)
 		return
+	}
+	if posixEnabled {
+		if unixToken, err := r.client.GetGroupUnixToken(ctx, createdGroup.UUID); err == nil {
+			createdGroup.GIDNumber = &unixToken.GIDNumber
+		}
 	}
 
 	if err := r.applyGroupState(ctx, &plan, createdGroup); err != nil {
@@ -466,6 +551,7 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 
 	// Prepare members list
 	var memberIDs []string
+	var mail []string
 	var entryManagedBy []string
 	var err error
 	if !plan.Members.IsNull() && !plan.Members.IsUnknown() {
@@ -485,10 +571,29 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			return
 		}
 	}
+	if !plan.Mail.IsNull() && !plan.Mail.IsUnknown() {
+		resp.Diagnostics.Append(plan.Mail.ElementsAs(ctx, &mail, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
 
 	nameChanged := !plan.Name.Equal(state.Name)
 	descriptionChanged := !plan.Description.Equal(state.Description)
+	mailChanged := !plan.Mail.Equal(state.Mail)
+	posixChanged := !plan.PosixEnabled.Equal(state.PosixEnabled)
+	gidNumberChanged := !plan.GIDNumber.Equal(state.GIDNumber)
 	entryManagedByChanged := !plan.EntryManagedBy.Equal(state.EntryManagedBy)
+	desiredPosixEnabled := (!plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && plan.PosixEnabled.ValueBool()) || (!plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown())
+	currentPosixEnabled := !state.PosixEnabled.IsNull() && !state.PosixEnabled.IsUnknown() && state.PosixEnabled.ValueBool()
+	if !plan.PosixEnabled.IsNull() && !plan.PosixEnabled.IsUnknown() && !plan.PosixEnabled.ValueBool() && !plan.GIDNumber.IsNull() && !plan.GIDNumber.IsUnknown() {
+		resp.Diagnostics.AddError("Invalid POSIX Configuration", "gidnumber requires posix_enabled = true.")
+		return
+	}
+	if currentPosixEnabled && !desiredPosixEnabled {
+		resp.Diagnostics.AddError("Unsupported POSIX Update", "Disabling group POSIX support is not currently supported by this provider.")
+		return
+	}
 
 	var name *string
 	if nameChanged {
@@ -505,18 +610,42 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		description = &newDescription
 	}
 
+	var mailToApply []string
+	if mailChanged {
+		if plan.Mail.IsNull() || plan.Mail.IsUnknown() {
+			mailToApply = []string{}
+		} else {
+			mailToApply = mail
+		}
+	} else {
+		mailToApply = nil
+	}
 	var managedBy []string
 	if entryManagedByChanged {
 		managedBy = entryManagedBy
 	} else {
 		managedBy = nil
 	}
-	if err := r.client.UpdateGroup(ctx, state.ID.ValueString(), name, description, managedBy, memberIDs); err != nil {
+	if err := r.client.UpdateGroup(ctx, state.ID.ValueString(), name, description, mailToApply, managedBy, memberIDs); err != nil {
 		resp.Diagnostics.AddError(
 			"Error Updating Group",
 			"Could not update group: "+err.Error(),
 		)
 		return
+	}
+	if (posixChanged || gidNumberChanged) && (desiredPosixEnabled || currentPosixEnabled) && !plan.GIDNumber.IsUnknown() {
+		var gid *int64
+		if !plan.GIDNumber.IsNull() {
+			value := plan.GIDNumber.ValueInt64()
+			gid = &value
+		}
+		if err := r.client.SetGroupGIDNumber(ctx, state.ID.ValueString(), gid); err != nil {
+			resp.Diagnostics.AddError(
+				"Error Updating POSIX Group",
+				"Could not update POSIX settings: "+err.Error(),
+			)
+			return
+		}
 	}
 
 	// Read back the updated group
@@ -527,6 +656,11 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			"Group was updated but could not be read back: "+err.Error(),
 		)
 		return
+	}
+	if desiredPosixEnabled || currentPosixEnabled {
+		if unixToken, err := r.client.GetGroupUnixToken(ctx, updatedGroup.UUID); err == nil {
+			updatedGroup.GIDNumber = &unixToken.GIDNumber
+		}
 	}
 
 	if err := r.applyGroupState(ctx, &plan, updatedGroup); err != nil {

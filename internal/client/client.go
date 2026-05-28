@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -179,6 +180,49 @@ func (e *Entry) GetStringSlice(key string) []string {
 	}
 
 	return nil
+}
+
+// GetInt64 retrieves an integer-like attribute.
+func (e *Entry) GetInt64(key string) (int64, bool) {
+	val, ok := e.Attrs[key]
+	if !ok {
+		return 0, false
+	}
+
+	parse := func(raw string) (int64, bool) {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	}
+
+	switch v := val.(type) {
+	case float64:
+		return int64(v), true
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case string:
+		return parse(v)
+	case []any:
+		if len(v) == 0 {
+			return 0, false
+		}
+		switch first := v[0].(type) {
+		case float64:
+			return int64(first), true
+		case int64:
+			return first, true
+		case int:
+			return int64(first), true
+		case string:
+			return parse(first)
+		}
+	}
+
+	return 0, false
 }
 
 // CreateRequest represents a resource creation request

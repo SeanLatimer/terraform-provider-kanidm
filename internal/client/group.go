@@ -11,8 +11,17 @@ type Group struct {
 	Name        string
 	SPN         string
 	Description string
+	Mail        []string
+	GIDNumber   *int64
 	EntryManagedBy []string
 	Members     []string
+}
+
+type UnixGroupToken struct {
+	UUID      string `json:"uuid"`
+	SPN       string `json:"spn"`
+	Name      string `json:"name"`
+	GIDNumber int64  `json:"gidnumber"`
 }
 
 // CreateGroup creates a new group
@@ -56,19 +65,25 @@ func (c *Client) GetGroup(ctx context.Context, id string) (*Group, error) {
 	if members == nil {
 		members = []string{}
 	}
+	var gidNumber *int64
+	if parsed, ok := entry.GetInt64("gidnumber"); ok {
+		gidNumber = &parsed
+	}
 
 	return &Group{
 		UUID:        firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
 		Name:        entry.GetString("name"),
 		SPN:         entry.GetString("spn"),
 		Description: entry.GetString("description"),
+		Mail:        entry.GetStringSlice("mail"),
+		GIDNumber:   gidNumber,
 		EntryManagedBy: entry.GetStringSlice("entry_managed_by"),
 		Members:     members,
 	}, nil
 }
 
 // UpdateGroup updates a group
-func (c *Client) UpdateGroup(ctx context.Context, id string, name *string, description *string, entryManagedBy []string, members []string) error {
+func (c *Client) UpdateGroup(ctx context.Context, id string, name *string, description *string, mail []string, entryManagedBy []string, members []string) error {
 	attrs := make(map[string]any)
 
 	if name != nil {
@@ -77,6 +92,10 @@ func (c *Client) UpdateGroup(ctx context.Context, id string, name *string, descr
 
 	if description != nil {
 		attrs["description"] = []string{*description}
+	}
+
+	if mail != nil {
+		attrs["mail"] = mail
 	}
 
 	if entryManagedBy != nil {
@@ -96,6 +115,31 @@ func (c *Client) UpdateGroup(ctx context.Context, id string, name *string, descr
 	defer func() { _ = resp.Body.Close() }()
 
 	return nil
+}
+
+func (c *Client) SetGroupGIDNumber(ctx context.Context, id string, gidNumber *int64) error {
+	body := map[string]any{}
+	if gidNumber != nil {
+		body["gidnumber"] = *gidNumber
+	}
+	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/v1/group/%s/_unix", id), body)
+	if err != nil {
+		return fmt.Errorf("set group gidnumber: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return nil
+}
+
+func (c *Client) GetGroupUnixToken(ctx context.Context, id string) (*UnixGroupToken, error) {
+	resp, err := c.doRequest(ctx, "GET", "/v1/group/"+id+"/_unix/_token", nil)
+	if err != nil {
+		return nil, fmt.Errorf("get group unix token: %w", err)
+	}
+	var token UnixGroupToken
+	if err := decodeResponse(resp, &token); err != nil {
+		return nil, err
+	}
+	return &token, nil
 }
 
 // DeleteGroup deletes a group

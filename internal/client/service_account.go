@@ -21,6 +21,7 @@ type ServiceAccount struct {
 	DisplayName    string
 	APIToken       string   // Only populated on creation
 	EntryManagedBy []string // Account/group IDs that can manage this entry
+	Mail           []string
 	ValidFrom      string
 	ExpireAt       string
 }
@@ -82,6 +83,7 @@ func (c *Client) GetServiceAccount(ctx context.Context, id string) (*ServiceAcco
 		SPN:            entry.GetString("spn"),
 		DisplayName:    entry.GetString("displayname"),
 		EntryManagedBy: entry.GetStringSlice("entry_managed_by"),
+		Mail:           entry.GetStringSlice("mail"),
 		ValidFrom:      entry.GetString(serviceAccountAttrValidFrom),
 		ExpireAt:       entry.GetString(serviceAccountAttrExpireAt),
 		// Note: API tokens are not returned in GET responses
@@ -89,7 +91,7 @@ func (c *Client) GetServiceAccount(ctx context.Context, id string) (*ServiceAcco
 }
 
 // UpdateServiceAccount updates a service account
-func (c *Client) UpdateServiceAccount(ctx context.Context, id string, name *string, displayName *string, entryManagedBy []string) error {
+func (c *Client) UpdateServiceAccount(ctx context.Context, id string, name *string, displayName *string, entryManagedBy []string, mail []string) error {
 	attrs := make(map[string]any)
 
 	if name != nil {
@@ -102,6 +104,10 @@ func (c *Client) UpdateServiceAccount(ctx context.Context, id string, name *stri
 
 	if entryManagedBy != nil {
 		attrs["entry_managed_by"] = entryManagedBy
+	}
+
+	if mail != nil {
+		attrs["mail"] = mail
 	}
 
 	req := NewUpdateRequest(attrs)
@@ -209,5 +215,21 @@ func (c *Client) ClearServiceAccountExpireAt(ctx context.Context, id string) err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	return nil
+}
+
+func (c *Client) SetServiceAccountUnix(ctx context.Context, id string, gidNumber *int64, shell *string) error {
+	body := map[string]any{}
+	if gidNumber != nil {
+		body["gidnumber"] = *gidNumber
+	}
+	if shell != nil {
+		body["shell"] = *shell
+	}
+	resp, err := c.doRequest(ctx, "POST", "/v1/service_account/"+id+"/_unix", body)
+	if err != nil {
+		return fmt.Errorf("set service account unix: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
 	return nil
 }
