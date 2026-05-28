@@ -27,6 +27,12 @@ type OAuth2Client struct {
 	ClientID     string // Computed
 	ClientSecret string // Only for basic/confidential clients, populated on creation
 	IsPublic     bool
+	PreferShortUsername          bool
+	PreferShortUsernameSet       bool
+	AllowInsecureDisablePKCE     bool
+	AllowInsecureDisablePKCESet  bool
+	JWTLegacyCryptoEnable        bool
+	JWTLegacyCryptoEnableSet     bool
 }
 
 // OAuth2ScopeMap represents a scope mapping for an OAuth2 client
@@ -133,7 +139,7 @@ func (c *Client) ListOAuth2Clients(ctx context.Context) ([]OAuth2Client, error) 
 			clientName = entry.GetString("oauth2_rs_name")
 		}
 
-		origin := entry.GetString("oauth2_rs_origin")
+		origin := entry.GetString("oauth2_rs_origin_landing")
 		if len(origin) > 0 && origin[len(origin)-1] == '/' {
 			origin = origin[:len(origin)-1]
 		}
@@ -151,17 +157,27 @@ func (c *Client) ListOAuth2Clients(ctx context.Context) ([]OAuth2Client, error) 
 			return nil, fmt.Errorf("parse oauth2 claim maps for %q: %w", clientName, err)
 		}
 
+		preferShort, preferShortSet := entry.GetBool("oauth2_prefer_short_username")
+		disablePKCE, disablePKCESet := entry.GetBool("oauth2_allow_insecure_client_disable_pkce")
+		jwtLegacy, jwtLegacySet := entry.GetBool("oauth2_jwt_legacy_crypto_enable")
+
 		clients = append(clients, OAuth2Client{
 			UUID:         firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
 			Name:         clientName,
 			DisplayName:  entry.GetString("displayname"),
 			Origin:       origin,
-			RedirectURIs: entry.GetStringSlice("oauth2_rs_origin_landing"),
+			RedirectURIs: entry.GetStringSlice("oauth2_rs_origin"),
 			ScopeMaps:    scopeMaps,
 			SupScopeMaps: supScopeMaps,
 			ClaimMaps:    claimMaps,
 			ClientID:     clientName,
 			IsPublic:     isPublic,
+			PreferShortUsername:         preferShort,
+			PreferShortUsernameSet:      preferShortSet,
+			AllowInsecureDisablePKCE:    disablePKCE,
+			AllowInsecureDisablePKCESet: disablePKCESet,
+			JWTLegacyCryptoEnable:       jwtLegacy,
+			JWTLegacyCryptoEnableSet:    jwtLegacySet,
 		})
 	}
 
@@ -296,10 +312,13 @@ func (c *Client) GetOAuth2Client(ctx context.Context, name string) (*OAuth2Clien
 
 	// Get origin and normalize by removing trailing slash if present
 	// (Kanidm adds trailing slash, but Terraform configs typically don't have it)
-	origin := entry.GetString("oauth2_rs_origin")
+	origin := entry.GetString("oauth2_rs_origin_landing")
 	if len(origin) > 0 && origin[len(origin)-1] == '/' {
 		origin = origin[:len(origin)-1]
 	}
+	preferShort, preferShortSet := entry.GetBool("oauth2_prefer_short_username")
+	disablePKCE, disablePKCESet := entry.GetBool("oauth2_allow_insecure_client_disable_pkce")
+	jwtLegacy, jwtLegacySet := entry.GetBool("oauth2_jwt_legacy_crypto_enable")
 
 	scopeMaps, err := parseScopeMapEntries(entry.GetStringSlice("oauth2_rs_scope_map"))
 	if err != nil {
@@ -319,34 +338,74 @@ func (c *Client) GetOAuth2Client(ctx context.Context, name string) (*OAuth2Clien
 		Name:         clientName,
 		DisplayName:  entry.GetString("displayname"),
 		Origin:       origin,
-		RedirectURIs: entry.GetStringSlice("oauth2_rs_origin_landing"),
+		RedirectURIs: entry.GetStringSlice("oauth2_rs_origin"),
 		ScopeMaps:    scopeMaps,
 		SupScopeMaps: supScopeMaps,
 		ClaimMaps:    claimMaps,
 		ClientID:     clientName,
 		IsPublic:     isPublic,
+		PreferShortUsername:         preferShort,
+		PreferShortUsernameSet:      preferShortSet,
+		AllowInsecureDisablePKCE:    disablePKCE,
+		AllowInsecureDisablePKCESet: disablePKCESet,
+		JWTLegacyCryptoEnable:       jwtLegacy,
+		JWTLegacyCryptoEnableSet:    jwtLegacySet,
 		// Note: Client secret is never returned in GET responses
 	}, nil
 }
 
-// UpdateOAuth2Client updates an OAuth2 client. If newName is non-nil, the client is renamed.
-func (c *Client) UpdateOAuth2Client(ctx context.Context, name string, newName *string, displayName, origin string, redirectURIs []string) error {
+type UpdateOAuth2ClientOpts struct {
+	NewName                     *string
+	DisplayName                 string
+	Origin                      string
+	RedirectURIs                []string
+	PreferShortUsername         *bool
+	AllowInsecureDisablePKCE    *bool
+	JWTLegacyCryptoEnable       *bool
+}
+
+// UpdateOAuth2Client updates an OAuth2 client. If NewName is non-nil, the client is renamed.
+func (c *Client) UpdateOAuth2Client(ctx context.Context, name string, opts UpdateOAuth2ClientOpts) error {
 	attrs := make(map[string]any)
 
-	if newName != nil {
-		attrs["name"] = []string{*newName}
+	if opts.NewName != nil {
+		attrs["name"] = []string{*opts.NewName}
 	}
 
-	if displayName != "" {
-		attrs["displayname"] = []string{displayName}
+	if opts.DisplayName != "" {
+		attrs["displayname"] = []string{opts.DisplayName}
 	}
 
-	if origin != "" {
-		attrs["oauth2_rs_origin"] = []string{origin}
+	if opts.Origin != "" {
+		attrs["oauth2_rs_origin_landing"] = []string{opts.Origin}
 	}
 
-	if redirectURIs != nil {
-		attrs["oauth2_rs_origin_landing"] = redirectURIs
+	if opts.RedirectURIs != nil {
+		attrs["oauth2_rs_origin"] = opts.RedirectURIs
+	}
+
+	if opts.PreferShortUsername != nil {
+		value := "false"
+		if *opts.PreferShortUsername {
+			value = "true"
+		}
+		attrs["oauth2_prefer_short_username"] = []string{value}
+	}
+
+	if opts.AllowInsecureDisablePKCE != nil {
+		if *opts.AllowInsecureDisablePKCE {
+			attrs["oauth2_allow_insecure_client_disable_pkce"] = []string{"true"}
+		} else {
+			attrs["oauth2_allow_insecure_client_disable_pkce"] = []string{}
+		}
+	}
+
+	if opts.JWTLegacyCryptoEnable != nil {
+		value := "false"
+		if *opts.JWTLegacyCryptoEnable {
+			value = "true"
+		}
+		attrs["oauth2_jwt_legacy_crypto_enable"] = []string{value}
 	}
 
 	req := NewUpdateRequest(attrs)

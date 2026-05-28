@@ -46,12 +46,15 @@ type oauth2ResourceModel struct {
 	Name         types.String `tfsdk:"name"`
 	DisplayName  types.String `tfsdk:"displayname"`
 	Origin       types.String `tfsdk:"origin"`
-	RedirectURIs types.List   `tfsdk:"redirect_uris"`
+	RedirectURIs types.Set    `tfsdk:"redirect_uris"`
 	ImagePath    types.String `tfsdk:"image_path"`
 	ImageSHA256  types.String `tfsdk:"image_sha256"`
 	ScopeMaps    types.Set    `tfsdk:"scope_map"`
 	SupScopeMaps types.Set    `tfsdk:"sup_scope_map"`
 	ClaimMaps    types.Set    `tfsdk:"claim_map"`
+	PreferShortUsername         types.Bool   `tfsdk:"prefer_short_username"`
+	AllowInsecureDisablePKCE    types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
+	JWTLegacyCryptoEnable       types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
 	ClientSecret types.String
 }
 
@@ -60,12 +63,15 @@ type oauth2BasicResourceModel struct {
 	Name         types.String `tfsdk:"name"`
 	DisplayName  types.String `tfsdk:"displayname"`
 	Origin       types.String `tfsdk:"origin"`
-	RedirectURIs types.List   `tfsdk:"redirect_uris"`
+	RedirectURIs types.Set    `tfsdk:"redirect_uris"`
 	ImagePath    types.String `tfsdk:"image_path"`
 	ImageSHA256  types.String `tfsdk:"image_sha256"`
 	ScopeMaps    types.Set    `tfsdk:"scope_map"`
 	SupScopeMaps types.Set    `tfsdk:"sup_scope_map"`
 	ClaimMaps    types.Set    `tfsdk:"claim_map"`
+	PreferShortUsername         types.Bool   `tfsdk:"prefer_short_username"`
+	AllowInsecureDisablePKCE    types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
+	JWTLegacyCryptoEnable       types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
 	ClientSecret types.String `tfsdk:"client_secret"`
 }
 
@@ -74,23 +80,26 @@ type oauth2PublicResourceModel struct {
 	Name         types.String `tfsdk:"name"`
 	DisplayName  types.String `tfsdk:"displayname"`
 	Origin       types.String `tfsdk:"origin"`
-	RedirectURIs types.List   `tfsdk:"redirect_uris"`
+	RedirectURIs types.Set    `tfsdk:"redirect_uris"`
 	ImagePath    types.String `tfsdk:"image_path"`
 	ImageSHA256  types.String `tfsdk:"image_sha256"`
 	ScopeMaps    types.Set    `tfsdk:"scope_map"`
 	SupScopeMaps types.Set    `tfsdk:"sup_scope_map"`
 	ClaimMaps    types.Set    `tfsdk:"claim_map"`
+	PreferShortUsername         types.Bool   `tfsdk:"prefer_short_username"`
+	AllowInsecureDisablePKCE    types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
+	JWTLegacyCryptoEnable       types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
 }
 
 type scopeMapModel struct {
 	Group  types.String `tfsdk:"group"`
-	Scopes types.List   `tfsdk:"scopes"`
+	Scopes types.Set    `tfsdk:"scopes"`
 }
 
 type claimMapModel struct {
 	Name   types.String `tfsdk:"name"`
 	Group  types.String `tfsdk:"group"`
-	Values types.List   `tfsdk:"values"`
+	Values types.Set    `tfsdk:"values"`
 	Join   types.String `tfsdk:"join"`
 }
 
@@ -114,6 +123,9 @@ func resourceModelFromBasic(model oauth2BasicResourceModel) oauth2ResourceModel 
 		ScopeMaps:    model.ScopeMaps,
 		SupScopeMaps: model.SupScopeMaps,
 		ClaimMaps:    model.ClaimMaps,
+		PreferShortUsername: model.PreferShortUsername,
+		AllowInsecureDisablePKCE: model.AllowInsecureDisablePKCE,
+		JWTLegacyCryptoEnable: model.JWTLegacyCryptoEnable,
 		ClientSecret: model.ClientSecret,
 	}
 }
@@ -130,6 +142,9 @@ func resourceModelFromPublic(model oauth2PublicResourceModel) oauth2ResourceMode
 		ScopeMaps:    model.ScopeMaps,
 		SupScopeMaps: model.SupScopeMaps,
 		ClaimMaps:    model.ClaimMaps,
+		PreferShortUsername: model.PreferShortUsername,
+		AllowInsecureDisablePKCE: model.AllowInsecureDisablePKCE,
+		JWTLegacyCryptoEnable: model.JWTLegacyCryptoEnable,
 		ClientSecret: types.StringNull(),
 	}
 }
@@ -146,6 +161,9 @@ func basicModelFromResource(model oauth2ResourceModel) oauth2BasicResourceModel 
 		ScopeMaps:    model.ScopeMaps,
 		SupScopeMaps: model.SupScopeMaps,
 		ClaimMaps:    model.ClaimMaps,
+		PreferShortUsername: model.PreferShortUsername,
+		AllowInsecureDisablePKCE: model.AllowInsecureDisablePKCE,
+		JWTLegacyCryptoEnable: model.JWTLegacyCryptoEnable,
 		ClientSecret: model.ClientSecret,
 	}
 }
@@ -162,6 +180,9 @@ func publicModelFromResource(model oauth2ResourceModel) oauth2PublicResourceMode
 		ScopeMaps:    model.ScopeMaps,
 		SupScopeMaps: model.SupScopeMaps,
 		ClaimMaps:    model.ClaimMaps,
+		PreferShortUsername: model.PreferShortUsername,
+		AllowInsecureDisablePKCE: model.AllowInsecureDisablePKCE,
+		JWTLegacyCryptoEnable: model.JWTLegacyCryptoEnable,
 	}
 }
 
@@ -254,10 +275,22 @@ func (r *oauth2ClientResource) Schema(_ context.Context, _ resource.SchemaReques
 			MarkdownDescription: "Origin URL where the OAuth2 client application is hosted.",
 			Required:            true,
 		},
-		"redirect_uris": schema.ListAttribute{
-			MarkdownDescription: "List of allowed redirect URIs for OAuth2 callbacks.",
+		"redirect_uris": schema.SetAttribute{
+			MarkdownDescription: "Set of allowed redirect URIs for OAuth2 callbacks.",
 			Optional:            true,
 			ElementType:         types.StringType,
+		},
+		"prefer_short_username": schema.BoolAttribute{
+			MarkdownDescription: "Whether Kanidm should emit the bare username in the preferred_username claim instead of the full SPN.",
+			Optional:            true,
+		},
+		"allow_insecure_client_disable_pkce": schema.BoolAttribute{
+			MarkdownDescription: "Whether this confidential client may disable PKCE. Only use for legacy clients that cannot support PKCE.",
+			Optional:            true,
+		},
+		"jwt_legacy_crypto_enable": schema.BoolAttribute{
+			MarkdownDescription: "Whether Kanidm should enable legacy JWT crypto compatibility for this client.",
+			Optional:            true,
 		},
 		"image_path": schema.StringAttribute{
 			MarkdownDescription: "Optional local path to an image file to upload.",
@@ -293,8 +326,8 @@ func (r *oauth2ClientResource) Schema(_ context.Context, _ resource.SchemaReques
 							MarkdownDescription: "UUID of the Kanidm group to map scopes to.",
 							Required:            true,
 						},
-						"scopes": schema.ListAttribute{
-							MarkdownDescription: "List of OAuth2 scopes to grant to group members.",
+						"scopes": schema.SetAttribute{
+							MarkdownDescription: "Set of OAuth2 scopes to grant to group members.",
 							Required:            true,
 							ElementType:         types.StringType,
 						},
@@ -309,8 +342,8 @@ func (r *oauth2ClientResource) Schema(_ context.Context, _ resource.SchemaReques
 							MarkdownDescription: "UUID of the Kanidm group to map scopes to.",
 							Required:            true,
 						},
-						"scopes": schema.ListAttribute{
-							MarkdownDescription: "List of OAuth2 scopes to grant to group members.",
+						"scopes": schema.SetAttribute{
+							MarkdownDescription: "Set of OAuth2 scopes to grant to group members.",
 							Required:            true,
 							ElementType:         types.StringType,
 						},
@@ -329,8 +362,8 @@ func (r *oauth2ClientResource) Schema(_ context.Context, _ resource.SchemaReques
 							MarkdownDescription: "UUID of the Kanidm group to map claim values to.",
 							Required:            true,
 						},
-						"values": schema.ListAttribute{
-							MarkdownDescription: "List of claim values to grant to group members.",
+						"values": schema.SetAttribute{
+							MarkdownDescription: "Set of claim values to grant to group members.",
 							Required:            true,
 							ElementType:         types.StringType,
 						},
@@ -406,16 +439,16 @@ func (r *oauth2ClientResource) ModifyPlan(ctx context.Context, req resource.Modi
 					return
 				}
 				sort.Strings(scopes)
-				scopesList, diags := types.ListValueFrom(ctx, types.StringType, scopes)
+				scopesList, diags := types.SetValueFrom(ctx, types.StringType, scopes)
 				if diags.HasError() {
 					resp.Diagnostics.Append(diags...)
 					return
 				}
 				scopeMaps[i].Scopes = scopesList
 			}
-			scopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
-				"group": types.StringType, "scopes": types.ListType{ElemType: types.StringType},
-			}}, scopeMaps)
+				scopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
+					"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
+				}}, scopeMaps)
 			if diags.HasError() {
 				resp.Diagnostics.Append(diags...)
 				return
@@ -435,16 +468,16 @@ func (r *oauth2ClientResource) ModifyPlan(ctx context.Context, req resource.Modi
 					return
 				}
 				sort.Strings(scopes)
-				scopesList, diags := types.ListValueFrom(ctx, types.StringType, scopes)
+				scopesList, diags := types.SetValueFrom(ctx, types.StringType, scopes)
 				if diags.HasError() {
 					resp.Diagnostics.Append(diags...)
 					return
 				}
 				supScopeMaps[i].Scopes = scopesList
 			}
-			supScopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
-				"group": types.StringType, "scopes": types.ListType{ElemType: types.StringType},
-			}}, supScopeMaps)
+				supScopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
+					"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
+				}}, supScopeMaps)
 			if diags.HasError() {
 				resp.Diagnostics.Append(diags...)
 				return
@@ -464,17 +497,17 @@ func (r *oauth2ClientResource) ModifyPlan(ctx context.Context, req resource.Modi
 					return
 				}
 				sort.Strings(values)
-				valuesList, diags := types.ListValueFrom(ctx, types.StringType, values)
+				valuesList, diags := types.SetValueFrom(ctx, types.StringType, values)
 				if diags.HasError() {
 					resp.Diagnostics.Append(diags...)
 					return
 				}
 				claimMaps[i].Values = valuesList
 			}
-			claimMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
-				"name": types.StringType, "group": types.StringType,
-				"values": types.ListType{ElemType: types.StringType}, "join": types.StringType,
-			}}, claimMaps)
+				claimMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
+					"name": types.StringType, "group": types.StringType,
+					"values": types.SetType{ElemType: types.StringType}, "join": types.StringType,
+				}}, claimMaps)
 			if diags.HasError() {
 				resp.Diagnostics.Append(diags...)
 				return
@@ -520,14 +553,29 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 	model.Name = types.StringValue(oauth2Client.Name)
 	model.DisplayName = types.StringValue(oauth2Client.DisplayName)
 	model.Origin = types.StringValue(oauth2Client.Origin)
+	if oauth2Client.PreferShortUsernameSet {
+		model.PreferShortUsername = types.BoolValue(oauth2Client.PreferShortUsername)
+	} else {
+		model.PreferShortUsername = types.BoolNull()
+	}
+	if oauth2Client.AllowInsecureDisablePKCESet {
+		model.AllowInsecureDisablePKCE = types.BoolValue(oauth2Client.AllowInsecureDisablePKCE)
+	} else {
+		model.AllowInsecureDisablePKCE = types.BoolNull()
+	}
+	if oauth2Client.JWTLegacyCryptoEnableSet {
+		model.JWTLegacyCryptoEnable = types.BoolValue(oauth2Client.JWTLegacyCryptoEnable)
+	} else {
+		model.JWTLegacyCryptoEnable = types.BoolNull()
+	}
 	if len(oauth2Client.RedirectURIs) > 0 {
-		redirectURIsList, diags := types.ListValueFrom(ctx, types.StringType, oauth2Client.RedirectURIs)
+		redirectURIsList, diags := types.SetValueFrom(ctx, types.StringType, oauth2Client.RedirectURIs)
 		if diags.HasError() {
 			return errors.New(diags.Errors()[0].Summary())
 		}
 		model.RedirectURIs = redirectURIsList
 	} else {
-		model.RedirectURIs = types.ListNull(types.StringType)
+		model.RedirectURIs = types.SetNull(types.StringType)
 	}
 	if len(oauth2Client.ScopeMaps) > 0 {
 		scopeMapModels := make([]scopeMapModel, 0, len(oauth2Client.ScopeMaps))
@@ -539,14 +587,14 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 			sortedScopes := make([]string, len(sm.Scopes))
 			copy(sortedScopes, sm.Scopes)
 			sort.Strings(sortedScopes)
-			scopesList, diags := types.ListValueFrom(ctx, types.StringType, sortedScopes)
+				scopesList, diags := types.SetValueFrom(ctx, types.StringType, sortedScopes)
 			if diags.HasError() {
 				return errors.New(diags.Errors()[0].Summary())
 			}
 			scopeMapModels = append(scopeMapModels, scopeMapModel{Group: types.StringValue(groupUUID), Scopes: scopesList})
 		}
 		scopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
-			"group": types.StringType, "scopes": types.ListType{ElemType: types.StringType},
+			"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
 		}}, scopeMapModels)
 		if diags.HasError() {
 			return errors.New(diags.Errors()[0].Summary())
@@ -554,7 +602,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 		model.ScopeMaps = scopeMapsSet
 	} else {
 		model.ScopeMaps = types.SetNull(types.ObjectType{AttrTypes: map[string]attr.Type{
-			"group": types.StringType, "scopes": types.ListType{ElemType: types.StringType},
+			"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
 		}})
 	}
 	if len(oauth2Client.SupScopeMaps) > 0 {
@@ -567,14 +615,14 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 			sortedScopes := make([]string, len(sm.Scopes))
 			copy(sortedScopes, sm.Scopes)
 			sort.Strings(sortedScopes)
-			scopesList, diags := types.ListValueFrom(ctx, types.StringType, sortedScopes)
+				scopesList, diags := types.SetValueFrom(ctx, types.StringType, sortedScopes)
 			if diags.HasError() {
 				return errors.New(diags.Errors()[0].Summary())
 			}
 			supScopeMapModels = append(supScopeMapModels, scopeMapModel{Group: types.StringValue(groupUUID), Scopes: scopesList})
 		}
 		supScopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
-			"group": types.StringType, "scopes": types.ListType{ElemType: types.StringType},
+			"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
 		}}, supScopeMapModels)
 		if diags.HasError() {
 			return errors.New(diags.Errors()[0].Summary())
@@ -582,7 +630,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 		model.SupScopeMaps = supScopeMapsSet
 	} else {
 		model.SupScopeMaps = types.SetNull(types.ObjectType{AttrTypes: map[string]attr.Type{
-			"group": types.StringType, "scopes": types.ListType{ElemType: types.StringType},
+			"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
 		}})
 	}
 	if len(oauth2Client.ClaimMaps) > 0 {
@@ -595,7 +643,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 			sortedValues := make([]string, len(cm.Values))
 			copy(sortedValues, cm.Values)
 			sort.Strings(sortedValues)
-			valuesList, diags := types.ListValueFrom(ctx, types.StringType, sortedValues)
+			valuesList, diags := types.SetValueFrom(ctx, types.StringType, sortedValues)
 			if diags.HasError() {
 				return errors.New(diags.Errors()[0].Summary())
 			}
@@ -606,7 +654,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 		}
 		claimMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
 			"name": types.StringType, "group": types.StringType,
-			"values": types.ListType{ElemType: types.StringType}, "join": types.StringType,
+			"values": types.SetType{ElemType: types.StringType}, "join": types.StringType,
 		}}, claimMapModels)
 		if diags.HasError() {
 			return errors.New(diags.Errors()[0].Summary())
@@ -615,7 +663,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 	} else {
 		model.ClaimMaps = types.SetNull(types.ObjectType{AttrTypes: map[string]attr.Type{
 			"name": types.StringType, "group": types.StringType,
-			"values": types.ListType{ElemType: types.StringType}, "join": types.StringType,
+			"values": types.SetType{ElemType: types.StringType}, "join": types.StringType,
 		}})
 	}
 	if model.ImagePath.IsNull() || model.ImagePath.IsUnknown() || model.ImagePath.ValueString() == "" {
@@ -736,7 +784,24 @@ func (r *oauth2ClientResource) Create(ctx context.Context, req resource.CreateRe
 			return
 		}
 	}
-	if err := r.client.UpdateOAuth2Client(ctx, oauth2Client.Name, nil, plan.DisplayName.ValueString(), plan.Origin.ValueString(), redirectURIs); err != nil {
+	createOpts := client.UpdateOAuth2ClientOpts{
+		DisplayName: plan.DisplayName.ValueString(),
+		Origin:      plan.Origin.ValueString(),
+		RedirectURIs: redirectURIs,
+	}
+	if !plan.PreferShortUsername.IsNull() && !plan.PreferShortUsername.IsUnknown() {
+		value := plan.PreferShortUsername.ValueBool()
+		createOpts.PreferShortUsername = &value
+	}
+	if !plan.AllowInsecureDisablePKCE.IsNull() && !plan.AllowInsecureDisablePKCE.IsUnknown() {
+		value := plan.AllowInsecureDisablePKCE.ValueBool()
+		createOpts.AllowInsecureDisablePKCE = &value
+	}
+	if !plan.JWTLegacyCryptoEnable.IsNull() && !plan.JWTLegacyCryptoEnable.IsUnknown() {
+		value := plan.JWTLegacyCryptoEnable.ValueBool()
+		createOpts.JWTLegacyCryptoEnable = &value
+	}
+	if err := r.client.UpdateOAuth2Client(ctx, oauth2Client.Name, createOpts); err != nil {
 		resp.Diagnostics.AddError("Error Setting OAuth2 Configuration", err.Error())
 		return
 	}
@@ -869,7 +934,7 @@ func (r *oauth2ClientResource) diffScopeMaps(ctx context.Context, oldSet, newSet
 	}
 	for group, scopes := range oldByGroup {
 		if newScopes, exists := newByGroup[group]; !exists || scopeMapKey(group, scopes) != scopeMapKey(group, newScopes) {
-			scopesList, diags := types.ListValueFrom(ctx, types.StringType, scopes)
+			scopesList, diags := types.SetValueFrom(ctx, types.StringType, scopes)
 			if diags.HasError() {
 				return nil, nil, errors.New(diags.Errors()[0].Summary())
 			}
@@ -878,7 +943,7 @@ func (r *oauth2ClientResource) diffScopeMaps(ctx context.Context, oldSet, newSet
 	}
 	for group, scopes := range newByGroup {
 		if oldScopes, exists := oldByGroup[group]; !exists || scopeMapKey(group, scopes) != scopeMapKey(group, oldScopes) {
-			scopesList, diags := types.ListValueFrom(ctx, types.StringType, scopes)
+			scopesList, diags := types.SetValueFrom(ctx, types.StringType, scopes)
 			if diags.HasError() {
 				return nil, nil, errors.New(diags.Errors()[0].Summary())
 			}
@@ -968,7 +1033,25 @@ func (r *oauth2ClientResource) Update(ctx context.Context, req resource.UpdateRe
 		n := plan.Name.ValueString()
 		newName = &n
 	}
-	if err := r.client.UpdateOAuth2Client(ctx, resolvedClient.Name, newName, plan.DisplayName.ValueString(), plan.Origin.ValueString(), redirectURIs); err != nil {
+	updateOpts := client.UpdateOAuth2ClientOpts{
+		NewName:      newName,
+		DisplayName:  plan.DisplayName.ValueString(),
+		Origin:       plan.Origin.ValueString(),
+		RedirectURIs: redirectURIs,
+	}
+	if !plan.PreferShortUsername.Equal(state.PreferShortUsername) && !plan.PreferShortUsername.IsNull() && !plan.PreferShortUsername.IsUnknown() {
+		value := plan.PreferShortUsername.ValueBool()
+		updateOpts.PreferShortUsername = &value
+	}
+	if !plan.AllowInsecureDisablePKCE.Equal(state.AllowInsecureDisablePKCE) && !plan.AllowInsecureDisablePKCE.IsNull() && !plan.AllowInsecureDisablePKCE.IsUnknown() {
+		value := plan.AllowInsecureDisablePKCE.ValueBool()
+		updateOpts.AllowInsecureDisablePKCE = &value
+	}
+	if !plan.JWTLegacyCryptoEnable.Equal(state.JWTLegacyCryptoEnable) && !plan.JWTLegacyCryptoEnable.IsNull() && !plan.JWTLegacyCryptoEnable.IsUnknown() {
+		value := plan.JWTLegacyCryptoEnable.ValueBool()
+		updateOpts.JWTLegacyCryptoEnable = &value
+	}
+	if err := r.client.UpdateOAuth2Client(ctx, resolvedClient.Name, updateOpts); err != nil {
 		resp.Diagnostics.AddError("Error Updating OAuth2 Client", err.Error())
 		return
 	}
