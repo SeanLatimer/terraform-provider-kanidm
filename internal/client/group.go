@@ -9,6 +9,7 @@ import (
 type Group struct {
 	UUID        string
 	Name        string
+	SPN         string
 	Description string
 	Members     []string
 }
@@ -58,6 +59,7 @@ func (c *Client) GetGroup(ctx context.Context, id string) (*Group, error) {
 	return &Group{
 		UUID:        firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
 		Name:        entry.GetString("name"),
+		SPN:         entry.GetString("spn"),
 		Description: entry.GetString("description"),
 		Members:     members,
 	}, nil

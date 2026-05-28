@@ -11,6 +11,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // OAuth2Client represents a Kanidm OAuth2 resource server
@@ -20,10 +21,94 @@ type OAuth2Client struct {
 	DisplayName  string
 	Origin       string
 	RedirectURIs []string
-	ScopeMaps    map[string][]string
+	ScopeMaps    []OAuth2ScopeMap
+	SupScopeMaps []OAuth2ScopeMap
+	ClaimMaps    []OAuth2ClaimMap
 	ClientID     string // Computed
 	ClientSecret string // Only for basic/confidential clients, populated on creation
 	IsPublic     bool
+}
+
+// OAuth2ScopeMap represents a scope mapping for an OAuth2 client
+type OAuth2ScopeMap struct {
+	Group  string
+	Scopes []string
+}
+
+// OAuth2ClaimMap represents a claim mapping for an OAuth2 client
+type OAuth2ClaimMap struct {
+	Name   string
+	Group  string
+	Values []string
+	Join   string
+}
+
+// ParseOAuth2ScopeMap parses a scope map proto string from the REST API.
+// Expected formats:
+//   - "group-spn@domain: {\"scope1\", \"scope2\"}"
+//   - "group-uuid: {\"scope1\", \"scope2\"}"
+func ParseOAuth2ScopeMap(raw string) (group string, scopes []string, err error) {
+	parts := strings.SplitN(raw, ":", 2)
+	if len(parts) != 2 {
+		return "", nil, fmt.Errorf("invalid scope map format: %q", raw)
+	}
+
+	group = strings.TrimSpace(parts[0])
+	scopesPart := strings.TrimSpace(parts[1])
+
+	// Remove surrounding braces
+	scopesPart = strings.TrimPrefix(scopesPart, "{")
+	scopesPart = strings.TrimSuffix(scopesPart, "}")
+
+	// Split by comma and trim quotes/spaces
+	for _, s := range strings.Split(scopesPart, ",") {
+		s = strings.TrimSpace(s)
+		s = strings.Trim(s, "\"")
+		if s != "" {
+			scopes = append(scopes, s)
+		}
+	}
+
+	return group, scopes, nil
+}
+
+// ParseOAuth2ClaimMap parses a claim map proto string from the REST API.
+// Expected format: "claim_name:group-spn@domain:join_char:\"joined_values\""
+// join_char is the actual separator: "," for csv, " " for ssv, ";" for array
+func ParseOAuth2ClaimMap(raw string) (claimName, group, joinStrategy string, values []string, err error) {
+	parts := strings.SplitN(raw, ":", 4)
+	if len(parts) != 4 {
+		return "", "", "", nil, fmt.Errorf("invalid claim map format: %q", raw)
+	}
+
+	claimName = parts[0]
+	group = parts[1]
+	joinChar := parts[2]
+	valuesPart := strings.Trim(parts[3], "\"")
+
+	// Map join char to strategy name
+	switch joinChar {
+	case ",":
+		joinStrategy = "csv"
+	case " ":
+		joinStrategy = "ssv"
+	case ";":
+		joinStrategy = "array"
+	default:
+		joinStrategy = "array"
+	}
+
+	// The REST API always stores claim values as comma-separated inside the quotes,
+	// regardless of the join strategy. Split by comma to get individual values.
+	if valuesPart != "" {
+		for _, v := range strings.Split(valuesPart, ",") {
+			if v != "" {
+				values = append(values, v)
+			}
+		}
+	}
+
+	return claimName, group, joinStrategy, values, nil
 }
 
 // ListOAuth2Clients lists all OAuth2 clients visible to the caller.
@@ -53,18 +138,66 @@ func (c *Client) ListOAuth2Clients(ctx context.Context) ([]OAuth2Client, error) 
 			origin = origin[:len(origin)-1]
 		}
 
+		scopeMaps, err := parseScopeMapEntries(entry.GetStringSlice("oauth2_rs_scope_map"))
+		if err != nil {
+			return nil, fmt.Errorf("parse oauth2 scope maps for %q: %w", clientName, err)
+		}
+		supScopeMaps, err := parseScopeMapEntries(entry.GetStringSlice("oauth2_rs_sup_scope_map"))
+		if err != nil {
+			return nil, fmt.Errorf("parse oauth2 supplemental scope maps for %q: %w", clientName, err)
+		}
+		claimMaps, err := parseClaimMapEntries(entry.GetStringSlice("oauth2_rs_claim_map"))
+		if err != nil {
+			return nil, fmt.Errorf("parse oauth2 claim maps for %q: %w", clientName, err)
+		}
+
 		clients = append(clients, OAuth2Client{
 			UUID:         firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
 			Name:         clientName,
 			DisplayName:  entry.GetString("displayname"),
 			Origin:       origin,
 			RedirectURIs: entry.GetStringSlice("oauth2_rs_origin_landing"),
+			ScopeMaps:    scopeMaps,
+			SupScopeMaps: supScopeMaps,
+			ClaimMaps:    claimMaps,
 			ClientID:     clientName,
 			IsPublic:     isPublic,
 		})
 	}
 
 	return clients, nil
+}
+
+func parseScopeMapEntries(rawEntries []string) ([]OAuth2ScopeMap, error) {
+	if len(rawEntries) == 0 {
+		return nil, nil
+	}
+
+	var maps []OAuth2ScopeMap
+	for _, raw := range rawEntries {
+		group, scopes, err := ParseOAuth2ScopeMap(raw)
+		if err != nil {
+			return nil, err
+		}
+		maps = append(maps, OAuth2ScopeMap{Group: group, Scopes: scopes})
+	}
+	return maps, nil
+}
+
+func parseClaimMapEntries(rawEntries []string) ([]OAuth2ClaimMap, error) {
+	if len(rawEntries) == 0 {
+		return nil, nil
+	}
+
+	var maps []OAuth2ClaimMap
+	for _, raw := range rawEntries {
+		claimName, group, join, values, err := ParseOAuth2ClaimMap(raw)
+		if err != nil {
+			return nil, err
+		}
+		maps = append(maps, OAuth2ClaimMap{Name: claimName, Group: group, Values: values, Join: join})
+	}
+	return maps, nil
 }
 
 // ResolveOAuth2Client resolves an OAuth2 client by current name or stable UUID.
@@ -168,12 +301,28 @@ func (c *Client) GetOAuth2Client(ctx context.Context, name string) (*OAuth2Clien
 		origin = origin[:len(origin)-1]
 	}
 
+	scopeMaps, err := parseScopeMapEntries(entry.GetStringSlice("oauth2_rs_scope_map"))
+	if err != nil {
+		return nil, fmt.Errorf("parse oauth2 scope maps for %q: %w", clientName, err)
+	}
+	supScopeMaps, err := parseScopeMapEntries(entry.GetStringSlice("oauth2_rs_sup_scope_map"))
+	if err != nil {
+		return nil, fmt.Errorf("parse oauth2 supplemental scope maps for %q: %w", clientName, err)
+	}
+	claimMaps, err := parseClaimMapEntries(entry.GetStringSlice("oauth2_rs_claim_map"))
+	if err != nil {
+		return nil, fmt.Errorf("parse oauth2 claim maps for %q: %w", clientName, err)
+	}
+
 	return &OAuth2Client{
 		UUID:         firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
 		Name:         clientName,
 		DisplayName:  entry.GetString("displayname"),
 		Origin:       origin,
 		RedirectURIs: entry.GetStringSlice("oauth2_rs_origin_landing"),
+		ScopeMaps:    scopeMaps,
+		SupScopeMaps: supScopeMaps,
+		ClaimMaps:    claimMaps,
 		ClientID:     clientName,
 		IsPublic:     isPublic,
 		// Note: Client secret is never returned in GET responses
@@ -239,6 +388,61 @@ func (c *Client) DeleteOAuth2ScopeMap(ctx context.Context, rsName, groupName str
 	resp, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/v1/oauth2/%s/_scopemap/%s", rsName, groupName), nil)
 	if err != nil {
 		return fmt.Errorf("delete oauth2 scope map: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return nil
+}
+
+// SetOAuth2SupScopeMap sets the supplemental scope mapping for an OAuth2 client
+func (c *Client) SetOAuth2SupScopeMap(ctx context.Context, rsName, groupName string, scopes []string) error {
+	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/v1/oauth2/%s/_sup_scopemap/%s", rsName, groupName), scopes)
+	if err != nil {
+		return fmt.Errorf("set oauth2 sup scope map: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return nil
+}
+
+// DeleteOAuth2SupScopeMap removes a supplemental scope mapping for an OAuth2 client
+func (c *Client) DeleteOAuth2SupScopeMap(ctx context.Context, rsName, groupName string) error {
+	resp, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/v1/oauth2/%s/_sup_scopemap/%s", rsName, groupName), nil)
+	if err != nil {
+		return fmt.Errorf("delete oauth2 sup scope map: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return nil
+}
+
+// SetOAuth2ClaimMap sets the claim mapping for an OAuth2 client
+func (c *Client) SetOAuth2ClaimMap(ctx context.Context, rsName, claimName, groupName string, values []string) error {
+	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/v1/oauth2/%s/_claimmap/%s/%s", rsName, claimName, groupName), values)
+	if err != nil {
+		return fmt.Errorf("set oauth2 claim map: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return nil
+}
+
+// SetOAuth2ClaimMapJoin sets the join strategy for a claim map on an OAuth2 client
+func (c *Client) SetOAuth2ClaimMapJoin(ctx context.Context, rsName, claimName, join string) error {
+	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/v1/oauth2/%s/_claimmap/%s", rsName, claimName), join)
+	if err != nil {
+		return fmt.Errorf("set oauth2 claim map join: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return nil
+}
+
+// DeleteOAuth2ClaimMap removes a claim mapping for an OAuth2 client
+func (c *Client) DeleteOAuth2ClaimMap(ctx context.Context, rsName, claimName, groupName string) error {
+	resp, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/v1/oauth2/%s/_claimmap/%s/%s", rsName, claimName, groupName), nil)
+	if err != nil {
+		return fmt.Errorf("delete oauth2 claim map: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
