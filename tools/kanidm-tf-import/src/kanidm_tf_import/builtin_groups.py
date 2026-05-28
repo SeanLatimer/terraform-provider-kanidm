@@ -1,0 +1,40 @@
+BUILTIN_GROUPS: frozenset[str] = frozenset({
+    "domain_admins",
+    "idm_access_control_admins",
+    "idm_account_policy_admins",
+    "idm_group_admins",
+    "idm_mail_servers",
+    "idm_mail_service_admins",
+    "idm_oauth2_admins",
+    "idm_people_admins",
+    "idm_people_on_boarding",
+    "idm_people_pii_read",
+    "idm_people_self_mail_write",
+    "idm_people_self_name_write",
+    "idm_radius_servers",
+    "idm_radius_service_admins",
+    "idm_recycle_bin_admins",
+    "idm_schema_admins",
+    "idm_service_account_admins",
+    "idm_unix_admins",
+    "idm_application_admins",
+    "idm_admins",
+    "idm_service_desk",
+    "system_admins",
+})
+
+SYSTEM_GROUPS: frozenset[str] = frozenset({
+    "idm_all_persons",
+    "idm_all_accounts",
+    "idm_high_privilege",
+    "idm_client_certificate_admins",
+    "idm_message_admins",
+    "idm_message_senders",
+    "idm_oauth2_client_admins",
+    "idm_oauth2_account_admins",
+    "idm_unix_authentication_read",
+    "idm_ui_enable_experimental_features",
+    "idm_account_mail_read",
+})
+
+ALL_EXTERNAL_MANAGED: frozenset[str] = BUILTIN_GROUPS | SYSTEM_GROUPS
