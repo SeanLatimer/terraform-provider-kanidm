@@ -7,14 +7,14 @@ import (
 
 // Group represents a Kanidm group
 type Group struct {
-	UUID        string
-	Name        string
-	SPN         string
-	Description string
-	Mail        []string
-	GIDNumber   *int64
+	UUID           string
+	Name           string
+	SPN            string
+	Description    string
+	Mail           []string
+	GIDNumber      *int64
 	EntryManagedBy []string
-	Members     []string
+	Members        []string
 }
 
 type UnixGroupToken struct {
@@ -71,14 +71,14 @@ func (c *Client) GetGroup(ctx context.Context, id string) (*Group, error) {
 	}
 
 	return &Group{
-		UUID:        firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
-		Name:        entry.GetString("name"),
-		SPN:         entry.GetString("spn"),
-		Description: entry.GetString("description"),
-		Mail:        entry.GetStringSlice("mail"),
-		GIDNumber:   gidNumber,
+		UUID:           firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
+		Name:           entry.GetString("name"),
+		SPN:            entry.GetString("spn"),
+		Description:    entry.GetString("description"),
+		Mail:           entry.GetStringSlice("mail"),
+		GIDNumber:      gidNumber,
 		EntryManagedBy: entry.GetStringSlice("entry_managed_by"),
-		Members:     members,
+		Members:        members,
 	}, nil
 }
 

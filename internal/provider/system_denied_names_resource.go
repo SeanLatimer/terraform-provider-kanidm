@@ -265,4 +265,3 @@ func (r *systemDeniedNamesResource) ImportState(ctx context.Context, req resourc
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
-

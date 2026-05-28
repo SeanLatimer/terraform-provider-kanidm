@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -31,7 +31,6 @@ func NewOAuth2BasicResource() resource.Resource {
 	return &oauth2ClientResource{}
 }
 
-
 func NewOAuth2PublicResource() resource.Resource {
 	return &oauth2ClientResource{public: true}
 }
@@ -42,53 +41,53 @@ type oauth2ClientResource struct {
 }
 
 type oauth2ResourceModel struct {
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	DisplayName  types.String `tfsdk:"displayname"`
-	Origin       types.String `tfsdk:"origin"`
-	RedirectURIs types.Set    `tfsdk:"redirect_uris"`
-	ImagePath    types.String `tfsdk:"image_path"`
-	ImageSHA256  types.String `tfsdk:"image_sha256"`
-	ScopeMaps    types.Set    `tfsdk:"scope_map"`
-	SupScopeMaps types.Set    `tfsdk:"sup_scope_map"`
-	ClaimMaps    types.Set    `tfsdk:"claim_map"`
-	PreferShortUsername         types.Bool   `tfsdk:"prefer_short_username"`
-	AllowInsecureDisablePKCE    types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
-	JWTLegacyCryptoEnable       types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
-	ClientSecret types.String
+	ID                       types.String `tfsdk:"id"`
+	Name                     types.String `tfsdk:"name"`
+	DisplayName              types.String `tfsdk:"displayname"`
+	Origin                   types.String `tfsdk:"origin"`
+	RedirectURIs             types.Set    `tfsdk:"redirect_uris"`
+	ImagePath                types.String `tfsdk:"image_path"`
+	ImageSHA256              types.String `tfsdk:"image_sha256"`
+	ScopeMaps                types.Set    `tfsdk:"scope_map"`
+	SupScopeMaps             types.Set    `tfsdk:"sup_scope_map"`
+	ClaimMaps                types.Set    `tfsdk:"claim_map"`
+	PreferShortUsername      types.Bool   `tfsdk:"prefer_short_username"`
+	AllowInsecureDisablePKCE types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
+	JWTLegacyCryptoEnable    types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
+	ClientSecret             types.String
 }
 
 type oauth2BasicResourceModel struct {
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	DisplayName  types.String `tfsdk:"displayname"`
-	Origin       types.String `tfsdk:"origin"`
-	RedirectURIs types.Set    `tfsdk:"redirect_uris"`
-	ImagePath    types.String `tfsdk:"image_path"`
-	ImageSHA256  types.String `tfsdk:"image_sha256"`
-	ScopeMaps    types.Set    `tfsdk:"scope_map"`
-	SupScopeMaps types.Set    `tfsdk:"sup_scope_map"`
-	ClaimMaps    types.Set    `tfsdk:"claim_map"`
-	PreferShortUsername         types.Bool   `tfsdk:"prefer_short_username"`
-	AllowInsecureDisablePKCE    types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
-	JWTLegacyCryptoEnable       types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
-	ClientSecret types.String `tfsdk:"client_secret"`
+	ID                       types.String `tfsdk:"id"`
+	Name                     types.String `tfsdk:"name"`
+	DisplayName              types.String `tfsdk:"displayname"`
+	Origin                   types.String `tfsdk:"origin"`
+	RedirectURIs             types.Set    `tfsdk:"redirect_uris"`
+	ImagePath                types.String `tfsdk:"image_path"`
+	ImageSHA256              types.String `tfsdk:"image_sha256"`
+	ScopeMaps                types.Set    `tfsdk:"scope_map"`
+	SupScopeMaps             types.Set    `tfsdk:"sup_scope_map"`
+	ClaimMaps                types.Set    `tfsdk:"claim_map"`
+	PreferShortUsername      types.Bool   `tfsdk:"prefer_short_username"`
+	AllowInsecureDisablePKCE types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
+	JWTLegacyCryptoEnable    types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
+	ClientSecret             types.String `tfsdk:"client_secret"`
 }
 
 type oauth2PublicResourceModel struct {
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	DisplayName  types.String `tfsdk:"displayname"`
-	Origin       types.String `tfsdk:"origin"`
-	RedirectURIs types.Set    `tfsdk:"redirect_uris"`
-	ImagePath    types.String `tfsdk:"image_path"`
-	ImageSHA256  types.String `tfsdk:"image_sha256"`
-	ScopeMaps    types.Set    `tfsdk:"scope_map"`
-	SupScopeMaps types.Set    `tfsdk:"sup_scope_map"`
-	ClaimMaps    types.Set    `tfsdk:"claim_map"`
-	PreferShortUsername         types.Bool   `tfsdk:"prefer_short_username"`
-	AllowInsecureDisablePKCE    types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
-	JWTLegacyCryptoEnable       types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
+	ID                       types.String `tfsdk:"id"`
+	Name                     types.String `tfsdk:"name"`
+	DisplayName              types.String `tfsdk:"displayname"`
+	Origin                   types.String `tfsdk:"origin"`
+	RedirectURIs             types.Set    `tfsdk:"redirect_uris"`
+	ImagePath                types.String `tfsdk:"image_path"`
+	ImageSHA256              types.String `tfsdk:"image_sha256"`
+	ScopeMaps                types.Set    `tfsdk:"scope_map"`
+	SupScopeMaps             types.Set    `tfsdk:"sup_scope_map"`
+	ClaimMaps                types.Set    `tfsdk:"claim_map"`
+	PreferShortUsername      types.Bool   `tfsdk:"prefer_short_username"`
+	AllowInsecureDisablePKCE types.Bool   `tfsdk:"allow_insecure_client_disable_pkce"`
+	JWTLegacyCryptoEnable    types.Bool   `tfsdk:"jwt_legacy_crypto_enable"`
 }
 
 type scopeMapModel struct {
@@ -113,76 +112,76 @@ type stateSetter interface {
 
 func resourceModelFromBasic(model oauth2BasicResourceModel) oauth2ResourceModel {
 	return oauth2ResourceModel{
-		ID:           model.ID,
-		Name:         model.Name,
-		DisplayName:  model.DisplayName,
-		Origin:       model.Origin,
-		RedirectURIs: model.RedirectURIs,
-		ImagePath:    model.ImagePath,
-		ImageSHA256:  model.ImageSHA256,
-		ScopeMaps:    model.ScopeMaps,
-		SupScopeMaps: model.SupScopeMaps,
-		ClaimMaps:    model.ClaimMaps,
-		PreferShortUsername: model.PreferShortUsername,
+		ID:                       model.ID,
+		Name:                     model.Name,
+		DisplayName:              model.DisplayName,
+		Origin:                   model.Origin,
+		RedirectURIs:             model.RedirectURIs,
+		ImagePath:                model.ImagePath,
+		ImageSHA256:              model.ImageSHA256,
+		ScopeMaps:                model.ScopeMaps,
+		SupScopeMaps:             model.SupScopeMaps,
+		ClaimMaps:                model.ClaimMaps,
+		PreferShortUsername:      model.PreferShortUsername,
 		AllowInsecureDisablePKCE: model.AllowInsecureDisablePKCE,
-		JWTLegacyCryptoEnable: model.JWTLegacyCryptoEnable,
-		ClientSecret: model.ClientSecret,
+		JWTLegacyCryptoEnable:    model.JWTLegacyCryptoEnable,
+		ClientSecret:             model.ClientSecret,
 	}
 }
 
 func resourceModelFromPublic(model oauth2PublicResourceModel) oauth2ResourceModel {
 	return oauth2ResourceModel{
-		ID:           model.ID,
-		Name:         model.Name,
-		DisplayName:  model.DisplayName,
-		Origin:       model.Origin,
-		RedirectURIs: model.RedirectURIs,
-		ImagePath:    model.ImagePath,
-		ImageSHA256:  model.ImageSHA256,
-		ScopeMaps:    model.ScopeMaps,
-		SupScopeMaps: model.SupScopeMaps,
-		ClaimMaps:    model.ClaimMaps,
-		PreferShortUsername: model.PreferShortUsername,
+		ID:                       model.ID,
+		Name:                     model.Name,
+		DisplayName:              model.DisplayName,
+		Origin:                   model.Origin,
+		RedirectURIs:             model.RedirectURIs,
+		ImagePath:                model.ImagePath,
+		ImageSHA256:              model.ImageSHA256,
+		ScopeMaps:                model.ScopeMaps,
+		SupScopeMaps:             model.SupScopeMaps,
+		ClaimMaps:                model.ClaimMaps,
+		PreferShortUsername:      model.PreferShortUsername,
 		AllowInsecureDisablePKCE: model.AllowInsecureDisablePKCE,
-		JWTLegacyCryptoEnable: model.JWTLegacyCryptoEnable,
-		ClientSecret: types.StringNull(),
+		JWTLegacyCryptoEnable:    model.JWTLegacyCryptoEnable,
+		ClientSecret:             types.StringNull(),
 	}
 }
 
 func basicModelFromResource(model oauth2ResourceModel) oauth2BasicResourceModel {
 	return oauth2BasicResourceModel{
-		ID:           model.ID,
-		Name:         model.Name,
-		DisplayName:  model.DisplayName,
-		Origin:       model.Origin,
-		RedirectURIs: model.RedirectURIs,
-		ImagePath:    model.ImagePath,
-		ImageSHA256:  model.ImageSHA256,
-		ScopeMaps:    model.ScopeMaps,
-		SupScopeMaps: model.SupScopeMaps,
-		ClaimMaps:    model.ClaimMaps,
-		PreferShortUsername: model.PreferShortUsername,
+		ID:                       model.ID,
+		Name:                     model.Name,
+		DisplayName:              model.DisplayName,
+		Origin:                   model.Origin,
+		RedirectURIs:             model.RedirectURIs,
+		ImagePath:                model.ImagePath,
+		ImageSHA256:              model.ImageSHA256,
+		ScopeMaps:                model.ScopeMaps,
+		SupScopeMaps:             model.SupScopeMaps,
+		ClaimMaps:                model.ClaimMaps,
+		PreferShortUsername:      model.PreferShortUsername,
 		AllowInsecureDisablePKCE: model.AllowInsecureDisablePKCE,
-		JWTLegacyCryptoEnable: model.JWTLegacyCryptoEnable,
-		ClientSecret: model.ClientSecret,
+		JWTLegacyCryptoEnable:    model.JWTLegacyCryptoEnable,
+		ClientSecret:             model.ClientSecret,
 	}
 }
 
 func publicModelFromResource(model oauth2ResourceModel) oauth2PublicResourceModel {
 	return oauth2PublicResourceModel{
-		ID:           model.ID,
-		Name:         model.Name,
-		DisplayName:  model.DisplayName,
-		Origin:       model.Origin,
-		RedirectURIs: model.RedirectURIs,
-		ImagePath:    model.ImagePath,
-		ImageSHA256:  model.ImageSHA256,
-		ScopeMaps:    model.ScopeMaps,
-		SupScopeMaps: model.SupScopeMaps,
-		ClaimMaps:    model.ClaimMaps,
-		PreferShortUsername: model.PreferShortUsername,
+		ID:                       model.ID,
+		Name:                     model.Name,
+		DisplayName:              model.DisplayName,
+		Origin:                   model.Origin,
+		RedirectURIs:             model.RedirectURIs,
+		ImagePath:                model.ImagePath,
+		ImageSHA256:              model.ImageSHA256,
+		ScopeMaps:                model.ScopeMaps,
+		SupScopeMaps:             model.SupScopeMaps,
+		ClaimMaps:                model.ClaimMaps,
+		PreferShortUsername:      model.PreferShortUsername,
 		AllowInsecureDisablePKCE: model.AllowInsecureDisablePKCE,
-		JWTLegacyCryptoEnable: model.JWTLegacyCryptoEnable,
+		JWTLegacyCryptoEnable:    model.JWTLegacyCryptoEnable,
 	}
 }
 
@@ -248,7 +247,6 @@ func (r *oauth2ClientResource) resourceLabel() string {
 func (r *oauth2ClientResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_" + r.resourceTypeName()
 }
-
 
 func (r *oauth2ClientResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	description := "Manages a Kanidm OAuth2 basic (confidential) client."
@@ -446,9 +444,9 @@ func (r *oauth2ClientResource) ModifyPlan(ctx context.Context, req resource.Modi
 				}
 				scopeMaps[i].Scopes = scopesList
 			}
-				scopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
-					"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
-				}}, scopeMaps)
+			scopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
+				"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
+			}}, scopeMaps)
 			if diags.HasError() {
 				resp.Diagnostics.Append(diags...)
 				return
@@ -475,9 +473,9 @@ func (r *oauth2ClientResource) ModifyPlan(ctx context.Context, req resource.Modi
 				}
 				supScopeMaps[i].Scopes = scopesList
 			}
-				supScopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
-					"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
-				}}, supScopeMaps)
+			supScopeMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
+				"group": types.StringType, "scopes": types.SetType{ElemType: types.StringType},
+			}}, supScopeMaps)
 			if diags.HasError() {
 				resp.Diagnostics.Append(diags...)
 				return
@@ -504,10 +502,10 @@ func (r *oauth2ClientResource) ModifyPlan(ctx context.Context, req resource.Modi
 				}
 				claimMaps[i].Values = valuesList
 			}
-				claimMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
-					"name": types.StringType, "group": types.StringType,
-					"values": types.SetType{ElemType: types.StringType}, "join": types.StringType,
-				}}, claimMaps)
+			claimMapsSet, diags := types.SetValueFrom(ctx, types.ObjectType{AttrTypes: map[string]attr.Type{
+				"name": types.StringType, "group": types.StringType,
+				"values": types.SetType{ElemType: types.StringType}, "join": types.StringType,
+			}}, claimMaps)
 			if diags.HasError() {
 				resp.Diagnostics.Append(diags...)
 				return
@@ -587,7 +585,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 			sortedScopes := make([]string, len(sm.Scopes))
 			copy(sortedScopes, sm.Scopes)
 			sort.Strings(sortedScopes)
-				scopesList, diags := types.SetValueFrom(ctx, types.StringType, sortedScopes)
+			scopesList, diags := types.SetValueFrom(ctx, types.StringType, sortedScopes)
 			if diags.HasError() {
 				return errors.New(diags.Errors()[0].Summary())
 			}
@@ -615,7 +613,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 			sortedScopes := make([]string, len(sm.Scopes))
 			copy(sortedScopes, sm.Scopes)
 			sort.Strings(sortedScopes)
-				scopesList, diags := types.SetValueFrom(ctx, types.StringType, sortedScopes)
+			scopesList, diags := types.SetValueFrom(ctx, types.StringType, sortedScopes)
 			if diags.HasError() {
 				return errors.New(diags.Errors()[0].Summary())
 			}
@@ -785,8 +783,8 @@ func (r *oauth2ClientResource) Create(ctx context.Context, req resource.CreateRe
 		}
 	}
 	createOpts := client.UpdateOAuth2ClientOpts{
-		DisplayName: plan.DisplayName.ValueString(),
-		Origin:      plan.Origin.ValueString(),
+		DisplayName:  plan.DisplayName.ValueString(),
+		Origin:       plan.Origin.ValueString(),
 		RedirectURIs: redirectURIs,
 	}
 	if !plan.PreferShortUsername.IsNull() && !plan.PreferShortUsername.IsUnknown() {

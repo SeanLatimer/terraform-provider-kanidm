@@ -32,14 +32,14 @@ type groupResource struct {
 }
 
 type groupResourceModel struct {
-	Name        types.String `tfsdk:"name"`
-	ID          types.String `tfsdk:"id"`
-	Description types.String `tfsdk:"description"`
-	Mail        types.List   `tfsdk:"mail"`
-	PosixEnabled types.Bool  `tfsdk:"posix_enabled"`
-	GIDNumber   types.Int64  `tfsdk:"gidnumber"`
-	EntryManagedBy types.Set `tfsdk:"entry_managed_by"`
-	Members     types.Set    `tfsdk:"members"`
+	Name           types.String `tfsdk:"name"`
+	ID             types.String `tfsdk:"id"`
+	Description    types.String `tfsdk:"description"`
+	Mail           types.List   `tfsdk:"mail"`
+	PosixEnabled   types.Bool   `tfsdk:"posix_enabled"`
+	GIDNumber      types.Int64  `tfsdk:"gidnumber"`
+	EntryManagedBy types.Set    `tfsdk:"entry_managed_by"`
+	Members        types.Set    `tfsdk:"members"`
 }
 
 func (r *groupResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {

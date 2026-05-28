@@ -16,23 +16,23 @@ import (
 
 // OAuth2Client represents a Kanidm OAuth2 resource server
 type OAuth2Client struct {
-	UUID         string
-	Name         string
-	DisplayName  string
-	Origin       string
-	RedirectURIs []string
-	ScopeMaps    []OAuth2ScopeMap
-	SupScopeMaps []OAuth2ScopeMap
-	ClaimMaps    []OAuth2ClaimMap
-	ClientID     string // Computed
-	ClientSecret string // Only for basic/confidential clients, populated on creation
-	IsPublic     bool
-	PreferShortUsername          bool
-	PreferShortUsernameSet       bool
-	AllowInsecureDisablePKCE     bool
-	AllowInsecureDisablePKCESet  bool
-	JWTLegacyCryptoEnable        bool
-	JWTLegacyCryptoEnableSet     bool
+	UUID                        string
+	Name                        string
+	DisplayName                 string
+	Origin                      string
+	RedirectURIs                []string
+	ScopeMaps                   []OAuth2ScopeMap
+	SupScopeMaps                []OAuth2ScopeMap
+	ClaimMaps                   []OAuth2ClaimMap
+	ClientID                    string // Computed
+	ClientSecret                string // Only for basic/confidential clients, populated on creation
+	IsPublic                    bool
+	PreferShortUsername         bool
+	PreferShortUsernameSet      bool
+	AllowInsecureDisablePKCE    bool
+	AllowInsecureDisablePKCESet bool
+	JWTLegacyCryptoEnable       bool
+	JWTLegacyCryptoEnableSet    bool
 }
 
 // OAuth2ScopeMap represents a scope mapping for an OAuth2 client
@@ -162,16 +162,16 @@ func (c *Client) ListOAuth2Clients(ctx context.Context) ([]OAuth2Client, error) 
 		jwtLegacy, jwtLegacySet := entry.GetBool("oauth2_jwt_legacy_crypto_enable")
 
 		clients = append(clients, OAuth2Client{
-			UUID:         firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
-			Name:         clientName,
-			DisplayName:  entry.GetString("displayname"),
-			Origin:       origin,
-			RedirectURIs: entry.GetStringSlice("oauth2_rs_origin"),
-			ScopeMaps:    scopeMaps,
-			SupScopeMaps: supScopeMaps,
-			ClaimMaps:    claimMaps,
-			ClientID:     clientName,
-			IsPublic:     isPublic,
+			UUID:                        firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
+			Name:                        clientName,
+			DisplayName:                 entry.GetString("displayname"),
+			Origin:                      origin,
+			RedirectURIs:                entry.GetStringSlice("oauth2_rs_origin"),
+			ScopeMaps:                   scopeMaps,
+			SupScopeMaps:                supScopeMaps,
+			ClaimMaps:                   claimMaps,
+			ClientID:                    clientName,
+			IsPublic:                    isPublic,
 			PreferShortUsername:         preferShort,
 			PreferShortUsernameSet:      preferShortSet,
 			AllowInsecureDisablePKCE:    disablePKCE,
@@ -334,16 +334,16 @@ func (c *Client) GetOAuth2Client(ctx context.Context, name string) (*OAuth2Clien
 	}
 
 	return &OAuth2Client{
-		UUID:         firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
-		Name:         clientName,
-		DisplayName:  entry.GetString("displayname"),
-		Origin:       origin,
-		RedirectURIs: entry.GetStringSlice("oauth2_rs_origin"),
-		ScopeMaps:    scopeMaps,
-		SupScopeMaps: supScopeMaps,
-		ClaimMaps:    claimMaps,
-		ClientID:     clientName,
-		IsPublic:     isPublic,
+		UUID:                        firstNonEmpty(entry.GetString("entryuuid"), entry.GetString("uuid")),
+		Name:                        clientName,
+		DisplayName:                 entry.GetString("displayname"),
+		Origin:                      origin,
+		RedirectURIs:                entry.GetStringSlice("oauth2_rs_origin"),
+		ScopeMaps:                   scopeMaps,
+		SupScopeMaps:                supScopeMaps,
+		ClaimMaps:                   claimMaps,
+		ClientID:                    clientName,
+		IsPublic:                    isPublic,
 		PreferShortUsername:         preferShort,
 		PreferShortUsernameSet:      preferShortSet,
 		AllowInsecureDisablePKCE:    disablePKCE,
@@ -355,13 +355,13 @@ func (c *Client) GetOAuth2Client(ctx context.Context, name string) (*OAuth2Clien
 }
 
 type UpdateOAuth2ClientOpts struct {
-	NewName                     *string
-	DisplayName                 string
-	Origin                      string
-	RedirectURIs                []string
-	PreferShortUsername         *bool
-	AllowInsecureDisablePKCE    *bool
-	JWTLegacyCryptoEnable       *bool
+	NewName                  *string
+	DisplayName              string
+	Origin                   string
+	RedirectURIs             []string
+	PreferShortUsername      *bool
+	AllowInsecureDisablePKCE *bool
+	JWTLegacyCryptoEnable    *bool
 }
 
 // UpdateOAuth2Client updates an OAuth2 client. If NewName is non-nil, the client is renamed.
