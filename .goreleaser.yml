@@ -43,7 +43,8 @@ builds:
 
 archives:
   - id: terraform-provider-kanidm
-    format: zip
+    formats:
+      - zip
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
     files:
       - LICENSE
