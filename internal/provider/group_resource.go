@@ -310,7 +310,11 @@ func (r *groupResource) applyGroupState(ctx context.Context, model *groupResourc
 
 	model.ID = types.StringValue(group.UUID)
 	model.Name = types.StringValue(group.Name)
-	model.Description = types.StringValue(group.Description)
+	if group.Description != "" {
+		model.Description = types.StringValue(group.Description)
+	} else {
+		model.Description = types.StringNull()
+	}
 	if len(group.Mail) > 0 {
 		mailList, diags := types.ListValueFrom(ctx, types.StringType, group.Mail)
 		if diags.HasError() {
@@ -612,11 +616,12 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 
 	var description *string
 	if descriptionChanged {
-		newDescription := ""
 		if !plan.Description.IsNull() {
-			newDescription = plan.Description.ValueString()
+			newDescription := plan.Description.ValueString()
+			description = &newDescription
+		} else {
+			description = nil
 		}
-		description = &newDescription
 	}
 
 	var mailToApply []string

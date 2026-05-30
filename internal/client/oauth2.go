@@ -140,9 +140,6 @@ func (c *Client) ListOAuth2Clients(ctx context.Context) ([]OAuth2Client, error) 
 		}
 
 		origin := entry.GetString("oauth2_rs_origin_landing")
-		if len(origin) > 0 && origin[len(origin)-1] == '/' {
-			origin = origin[:len(origin)-1]
-		}
 
 		scopeMaps, err := parseScopeMapEntries(entry.GetStringSlice("oauth2_rs_scope_map"))
 		if err != nil {
