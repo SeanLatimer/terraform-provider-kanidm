@@ -53,8 +53,8 @@ func (c *Client) GetPerson(ctx context.Context, id string) (*Person, error) {
 		return nil, fmt.Errorf("get person: %w", err)
 	}
 
-	var entry Entry
-	if err := decodeResponse(resp, &entry); err != nil {
+	entry, err := decodeEntry(resp)
+	if err != nil {
 		return nil, err
 	}
 

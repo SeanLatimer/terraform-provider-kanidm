@@ -291,8 +291,8 @@ func (c *Client) GetOAuth2Client(ctx context.Context, name string) (*OAuth2Clien
 		return nil, fmt.Errorf("get oauth2 client: %w", err)
 	}
 
-	var entry Entry
-	if err := decodeResponse(resp, &entry); err != nil {
+	entry, err := decodeEntry(resp)
+	if err != nil {
 		return nil, err
 	}
 

@@ -57,8 +57,8 @@ func (c *Client) GetGroup(ctx context.Context, id string) (*Group, error) {
 		return nil, fmt.Errorf("get group: %w", err)
 	}
 
-	var entry Entry
-	if err := decodeResponse(resp, &entry); err != nil {
+	entry, err := decodeEntry(resp)
+	if err != nil {
 		return nil, err
 	}
 

@@ -147,6 +147,20 @@ func decodeResponse(resp *http.Response, target any) error {
 	return nil
 }
 
+// decodeEntry decodes the response of a GET for a single entry. Kanidm answers
+// such a GET with HTTP 200 and a null body, not 404, when no entry matches the
+// id, or when the token cannot read the entry: both are returned as ErrNotFound.
+func decodeEntry(resp *http.Response) (*Entry, error) {
+	var entry *Entry
+	if err := decodeResponse(resp, &entry); err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, ErrNotFound
+	}
+	return entry, nil
+}
+
 // Entry represents a Kanidm resource with attributes
 type Entry struct {
 	Attrs map[string]any `json:"attrs"`

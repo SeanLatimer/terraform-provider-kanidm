@@ -138,7 +138,7 @@ output "existing_client_secret" {
 
 Required:
 
-- `group` (String) UUID of the Kanidm group to map claim values to.
+- `group` (String) Kanidm group to map claim values to. Kept in state as written when it names the same group: a UUID, the group name, or its SPN (`name@domain`). Use the name or SPN when the provider token cannot read groups (e.g. a token in `idm_oauth2_admins` only): a UUID the token cannot read fails the plan. Names and SPNs match case-insensitively.
 - `join` (String) Join strategy for this claim name. Valid values: csv, ssv, array.
 - `name` (String) Name of the custom claim.
 - `values` (Set of String) Set of claim values to grant to group members.
@@ -149,7 +149,7 @@ Required:
 
 Required:
 
-- `group` (String) UUID of the Kanidm group to map scopes to.
+- `group` (String) Kanidm group to map scopes to. Kept in state as written when it names the same group: a UUID, the group name, or its SPN (`name@domain`). Use the name or SPN when the provider token cannot read groups (e.g. a token in `idm_oauth2_admins` only): a UUID the token cannot read fails the plan. Names and SPNs match case-insensitively.
 - `scopes` (Set of String) Set of OAuth2 scopes to grant to group members.
 
 
@@ -158,5 +158,5 @@ Required:
 
 Required:
 
-- `group` (String) UUID of the Kanidm group to map scopes to.
+- `group` (String) Kanidm group to map scopes to. Kept in state as written when it names the same group: a UUID, the group name, or its SPN (`name@domain`). Use the name or SPN when the provider token cannot read groups (e.g. a token in `idm_oauth2_admins` only): a UUID the token cannot read fails the plan. Names and SPNs match case-insensitively.
 - `scopes` (Set of String) Set of OAuth2 scopes to grant to group members.
