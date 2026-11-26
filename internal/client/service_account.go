@@ -75,8 +75,8 @@ func (c *Client) GetServiceAccount(ctx context.Context, id string) (*ServiceAcco
 		return nil, fmt.Errorf("get service account: %w", err)
 	}
 
-	var entry Entry
-	if err := decodeResponse(resp, &entry); err != nil {
+	entry, err := decodeEntry(resp)
+	if err != nil {
 		return nil, err
 	}
 

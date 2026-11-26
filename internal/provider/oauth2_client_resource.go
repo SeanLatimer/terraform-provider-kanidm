@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -291,7 +292,7 @@ func (r *oauth2ClientResource) Schema(_ context.Context, _ resource.SchemaReques
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
 						"group": schema.StringAttribute{
-							MarkdownDescription: "UUID of the Kanidm group to map scopes to.",
+							MarkdownDescription: "Kanidm group to map scopes to. Kept in state as written when it names the same group: a UUID, the group name, or its SPN (`name@domain`). Use the name or SPN when the provider token cannot read groups (e.g. a token in `idm_oauth2_admins` only): a UUID the token cannot read fails the plan. Names and SPNs match case-insensitively.",
 							Required:            true,
 						},
 						"scopes": schema.SetAttribute{
@@ -307,7 +308,7 @@ func (r *oauth2ClientResource) Schema(_ context.Context, _ resource.SchemaReques
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
 						"group": schema.StringAttribute{
-							MarkdownDescription: "UUID of the Kanidm group to map scopes to.",
+							MarkdownDescription: "Kanidm group to map scopes to. Kept in state as written when it names the same group: a UUID, the group name, or its SPN (`name@domain`). Use the name or SPN when the provider token cannot read groups (e.g. a token in `idm_oauth2_admins` only): a UUID the token cannot read fails the plan. Names and SPNs match case-insensitively.",
 							Required:            true,
 						},
 						"scopes": schema.SetAttribute{
@@ -327,7 +328,7 @@ func (r *oauth2ClientResource) Schema(_ context.Context, _ resource.SchemaReques
 							Required:            true,
 						},
 						"group": schema.StringAttribute{
-							MarkdownDescription: "UUID of the Kanidm group to map claim values to.",
+							MarkdownDescription: "Kanidm group to map claim values to. Kept in state as written when it names the same group: a UUID, the group name, or its SPN (`name@domain`). Use the name or SPN when the provider token cannot read groups (e.g. a token in `idm_oauth2_admins` only): a UUID the token cannot read fails the plan. Names and SPNs match case-insensitively.",
 							Required:            true,
 						},
 						"values": schema.SetAttribute{
@@ -360,6 +361,19 @@ func (r *oauth2ClientResource) ModifyPlan(ctx context.Context, req resource.Modi
 	}
 	var plan oauth2ResourceModel
 	resp.Diagnostics.Append(r.getResourceModel(ctx, req.Plan, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	for _, block := range []struct {
+		attr string
+		set  types.Set
+	}{{"scope_map", plan.ScopeMaps}, {"sup_scope_map", plan.SupScopeMaps}, {"claim_map", plan.ClaimMaps}} {
+		for _, group := range priorGroups(ctx, block.set) {
+			if err := r.checkGroupReadable(ctx, group); err != nil {
+				resp.Diagnostics.AddAttributeError(path.Root(block.attr), "Unreadable OAuth2 Map Group", err.Error())
+			}
+		}
+	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -490,6 +504,17 @@ func (r *oauth2ClientResource) resolveGroupSPN(ctx context.Context, identifier s
 		return identifier, nil
 	}
 	group, err := r.client.GetGroup(ctx, identifier)
+	if errors.Is(err, client.ErrNotFound) {
+		if isUUID(identifier) {
+			// A UUID can be written, but Read can only ever see the group's SPN,
+			// so state would never match the plan.
+			return "", fmt.Errorf("group %q does not exist or cannot be read with this token: give the group by name or SPN", identifier)
+		}
+		// The token cannot read the group (Kanidm answers 200 with null, which
+		// the client turns into ErrNotFound). The scope/claim map endpoints
+		// resolve a name themselves, so pass it through unchanged.
+		return identifier, nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("resolve group %q: %w", identifier, err)
 	}
@@ -511,6 +536,71 @@ func (r *oauth2ClientResource) resolveGroupUUID(ctx context.Context, identifier 
 		return "", fmt.Errorf("group %q did not return a UUID", identifier)
 	}
 	return group.UUID, nil
+}
+
+// priorGroups returns the group values of a scope_map, sup_scope_map or
+// claim_map set as they are in the plan or prior state.
+func priorGroups(ctx context.Context, set types.Set) map[string]string {
+	groups := make(map[string]string)
+	if set.IsNull() || set.IsUnknown() {
+		return groups
+	}
+	for _, elem := range set.Elements() {
+		obj, ok := elem.(types.Object)
+		if !ok {
+			continue
+		}
+		if g, ok := obj.Attributes()["group"].(types.String); ok && !g.IsNull() && !g.IsUnknown() {
+			groups[strings.ToLower(g.ValueString())] = g.ValueString()
+		}
+	}
+	return groups
+}
+
+// groupStateValue maps a group as Kanidm returns it in a scope/claim map (its
+// SPN) to the value kept in state. A value the configuration already uses for
+// the same group (the SPN, or the name before "@") is kept as written. Otherwise
+// the group is resolved to its UUID; if the token cannot read the group (for
+// example a token in idm_oauth2_admins only), the SPN is kept. Kanidm names are
+// lowercase, so the match ignores case.
+func (r *oauth2ClientResource) groupStateValue(ctx context.Context, apiGroup string, prior map[string]string) (string, error) {
+	if value, ok := prior[strings.ToLower(apiGroup)]; ok {
+		return value, nil
+	}
+	if name, _, found := strings.Cut(apiGroup, "@"); found {
+		if value, ok := prior[strings.ToLower(name)]; ok {
+			return value, nil
+		}
+	}
+	groupUUID, err := r.resolveGroupUUID(ctx, apiGroup)
+	if errors.Is(err, client.ErrNotFound) {
+		return apiGroup, nil
+	}
+	return groupUUID, err
+}
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func isUUID(s string) bool {
+	return uuidPattern.MatchString(s)
+}
+
+// checkGroupReadable fails for a map group given as a UUID that does not exist
+// or that the token cannot read. Read only ever sees a map's group as its SPN,
+// so such a UUID could never be matched; failing at plan time stops the apply
+// before the client is written. Names and SPNs need no read.
+func (r *oauth2ClientResource) checkGroupReadable(ctx context.Context, group string) error {
+	if !isUUID(group) {
+		return nil
+	}
+	_, err := r.client.GetGroup(ctx, group)
+	if errors.Is(err, client.ErrNotFound) {
+		return fmt.Errorf("group %q does not exist or cannot be read with this token: give the group by name or SPN (name@domain)", group)
+	}
+	if err != nil {
+		return fmt.Errorf("resolve group %q: %w", group, err)
+	}
+	return nil
 }
 
 func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model *oauth2ResourceModel, oauth2Client *client.OAuth2Client) error {
@@ -545,10 +635,13 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 	} else {
 		model.RedirectURIs = types.SetNull(types.StringType)
 	}
+	priorScopeGroups := priorGroups(ctx, model.ScopeMaps)
+	priorSupScopeGroups := priorGroups(ctx, model.SupScopeMaps)
+	priorClaimGroups := priorGroups(ctx, model.ClaimMaps)
 	if len(oauth2Client.ScopeMaps) > 0 {
 		scopeMapModels := make([]scopeMapModel, 0, len(oauth2Client.ScopeMaps))
 		for _, sm := range oauth2Client.ScopeMaps {
-			groupUUID, err := r.resolveGroupUUID(ctx, sm.Group)
+			groupUUID, err := r.groupStateValue(ctx, sm.Group, priorScopeGroups)
 			if err != nil {
 				return fmt.Errorf("resolve scope map group %q: %w", sm.Group, err)
 			}
@@ -576,7 +669,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 	if len(oauth2Client.SupScopeMaps) > 0 {
 		supScopeMapModels := make([]scopeMapModel, 0, len(oauth2Client.SupScopeMaps))
 		for _, sm := range oauth2Client.SupScopeMaps {
-			groupUUID, err := r.resolveGroupUUID(ctx, sm.Group)
+			groupUUID, err := r.groupStateValue(ctx, sm.Group, priorSupScopeGroups)
 			if err != nil {
 				return fmt.Errorf("resolve sup scope map group %q: %w", sm.Group, err)
 			}
@@ -604,7 +697,7 @@ func (r *oauth2ClientResource) applyOAuth2BasicState(ctx context.Context, model 
 	if len(oauth2Client.ClaimMaps) > 0 {
 		claimMapModels := make([]claimMapModel, 0, len(oauth2Client.ClaimMaps))
 		for _, cm := range oauth2Client.ClaimMaps {
-			groupUUID, err := r.resolveGroupUUID(ctx, cm.Group)
+			groupUUID, err := r.groupStateValue(ctx, cm.Group, priorClaimGroups)
 			if err != nil {
 				return fmt.Errorf("resolve claim map group %q: %w", cm.Group, err)
 			}
